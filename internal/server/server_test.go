@@ -354,6 +354,7 @@ func TestApplicationsNewRendersCSRF(t *testing.T) {
 		`name="role"`,
 		`name="status"`,
 		`name="priority"`,
+		`name="posting_pdf"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body does not contain %q", want)
@@ -395,6 +396,95 @@ func TestApplicationsCreateValidRedirectsToDetail(t *testing.T) {
 	}
 	if created.NextAction.Due == nil || created.NextAction.Due.Format("2006-01-02") != "2026-05-07" {
 		t.Fatalf("created next action due = %v, want 2026-05-07", created.NextAction.Due)
+	}
+}
+
+func TestApplicationsCreateWithPostingPDFRedirectsToDetail(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	appStore := &fakeApplicationStore{}
+	cookie, token := newFormCSRF(t, appStore)
+	fields := map[string]string{
+		csrfFieldName:         token,
+		"company":             "Northstar Systems",
+		"role":                "Senior Platform Engineer",
+		"status":              string(model.StatusApplied),
+		"priority":            string(model.PriorityHigh),
+		"source":              "Company site",
+		"posting_url":         "https://jobs.example.com/platform",
+		"location":            "Remote",
+		"next_action_summary": "Apply",
+	}
+	rec := postMultipartWithCookie(
+		"/applications",
+		fields,
+		"posting.pdf",
+		[]byte("%PDF-1.7\nsaved posting\n"),
+		cookie,
+		appStore,
+		dataDir,
+	)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusSeeOther, rec.Body.String())
+	}
+	if location := rec.Header().Get("Location"); location != "/applications/app_created" {
+		t.Fatalf("Location = %q, want detail redirect", location)
+	}
+	if len(appStore.created) != 1 {
+		t.Fatalf("created len = %d, want 1", len(appStore.created))
+	}
+	if appStore.created[0].PostingURL != "https://jobs.example.com/platform" {
+		t.Fatalf("PostingURL = %q", appStore.created[0].PostingURL)
+	}
+	if len(appStore.appDocuments) != 1 {
+		t.Fatalf("appDocuments len = %d, want 1", len(appStore.appDocuments))
+	}
+	attached := appStore.appDocuments[0]
+	if attached.ApplicationID != "app_created" || attached.Document.Type != model.DocumentJobPosting {
+		t.Fatalf("attached document = %#v", attached)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, filepath.FromSlash(attached.Document.StoragePath))); err != nil {
+		t.Fatalf("uploaded PDF was not saved: %v", err)
+	}
+}
+
+func TestApplicationsCreateRejectsInvalidPostingPDF(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	appStore := &fakeApplicationStore{}
+	cookie, token := newFormCSRF(t, appStore)
+	fields := map[string]string{
+		csrfFieldName: token,
+		"company":     "Northstar Systems",
+		"role":        "Senior Platform Engineer",
+		"status":      string(model.StatusApplied),
+		"priority":    string(model.PriorityHigh),
+		"posting_url": "https://jobs.example.com/platform",
+	}
+	rec := postMultipartWithCookie(
+		"/applications",
+		fields,
+		"posting.txt",
+		[]byte("not a pdf"),
+		cookie,
+		appStore,
+		dataDir,
+	)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnprocessableEntity)
+	}
+	if len(appStore.created) != 0 {
+		t.Fatalf("created len = %d, want 0", len(appStore.created))
+	}
+	if len(appStore.appDocuments) != 0 {
+		t.Fatalf("appDocuments len = %d, want 0", len(appStore.appDocuments))
+	}
+	if !strings.Contains(rec.Body.String(), "Choose a valid PDF under 20 MB.") {
+		t.Fatalf("body does not contain PDF validation error")
 	}
 }
 

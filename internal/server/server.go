@@ -655,7 +655,7 @@ func (s *Server) applicationsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	form, err := parseLimitedForm(w, r, defaultMaxFormBytes)
+	form, file, fileHeader, err := s.parseApplicationCreateForm(w, r)
 	if err != nil {
 		if errors.Is(err, errFormTooLarge) {
 			http.Error(w, "form body too large", http.StatusRequestEntityTooLarge)
@@ -664,6 +664,9 @@ func (s *Server) applicationsCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid form body", http.StatusBadRequest)
 		return
 	}
+	if file != nil {
+		defer file.Close()
+	}
 	if err := verifyCSRF(r, time.Now()); err != nil {
 		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
 		return
@@ -671,12 +674,26 @@ func (s *Server) applicationsCreate(w http.ResponseWriter, r *http.Request) {
 
 	values := applicationFormValuesFromForm(form)
 	app := applicationFromForm(form)
+	hasFile := hasPostingPDF(fileHeader)
+	if hasFile && s.dataDir == "" {
+		form.errors.Add("posting_pdf", "Document storage is not configured.")
+	}
+	if hasFile && !form.errors.Any() {
+		if err := validatePostingPDF(file, fileHeader); err != nil {
+			form.errors.Add("posting_pdf", "Choose a valid PDF under 20 MB.")
+		}
+	}
 	if !form.errors.Any() {
 		created, err := s.store.CreateApplication(r.Context(), app)
 		if err != nil {
 			form.errors.Add("form", "Could not save application. Please check the fields and try again.")
 			slog.Error("create application", "error", err)
 		} else {
+			if hasFile {
+				if _, err := s.savePostingPDF(r.Context(), created, file, fileHeader); err != nil {
+					slog.Error("save posting pdf for new application", "application_id", created.ID, "error", err)
+				}
+			}
 			http.Redirect(w, r, "/applications/"+created.ID, http.StatusSeeOther)
 			return
 		}
@@ -1056,12 +1073,17 @@ func parsePostingMultipartForm(w http.ResponseWriter, r *http.Request) (*formDat
 	return form, file, header, nil
 }
 
-func (s *Server) savePostingPDF(ctx context.Context, app model.Application, file multipart.File, header *multipart.FileHeader) (model.ApplicationDocument, error) {
-	if file == nil || header == nil || strings.TrimSpace(header.Filename) == "" {
-		return model.ApplicationDocument{}, errors.New("posting PDF is required")
+func (s *Server) parseApplicationCreateForm(w http.ResponseWriter, r *http.Request) (*formData, multipart.File, *multipart.FileHeader, error) {
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		return parsePostingMultipartForm(w, r)
 	}
-	if header.Size <= 0 || header.Size > maxPostingPDFBytes {
-		return model.ApplicationDocument{}, errors.New("posting PDF size is invalid")
+	form, err := parseLimitedForm(w, r, defaultMaxFormBytes)
+	return form, nil, nil, err
+}
+
+func (s *Server) savePostingPDF(ctx context.Context, app model.Application, file multipart.File, header *multipart.FileHeader) (model.ApplicationDocument, error) {
+	if err := validatePostingPDF(file, header); err != nil {
+		return model.ApplicationDocument{}, err
 	}
 
 	documentID, err := newDocumentUploadID()
@@ -1118,6 +1140,33 @@ func (s *Server) savePostingPDF(ctx context.Context, app model.Application, file
 
 	removeDestination = false
 	return attached, nil
+}
+
+func hasPostingPDF(header *multipart.FileHeader) bool {
+	return header != nil && strings.TrimSpace(header.Filename) != ""
+}
+
+func validatePostingPDF(file multipart.File, header *multipart.FileHeader) error {
+	if file == nil || !hasPostingPDF(header) {
+		return errors.New("posting PDF is required")
+	}
+	if header.Size <= 0 || header.Size > maxPostingPDFBytes {
+		return errors.New("posting PDF size is invalid")
+	}
+
+	headerBytes := make([]byte, 512)
+	n, err := file.Read(headerBytes)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	if !bytes.HasPrefix(headerBytes[:n], []byte("%PDF-")) {
+		return errors.New("posting document is not a PDF")
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func newDocumentUploadID() (string, error) {

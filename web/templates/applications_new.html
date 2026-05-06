@@ -23,7 +23,7 @@
     </header>
 
     <main>
-      <form class="form-panel" method="post" action="/applications" novalidate>
+      <form class="form-panel" method="post" action="/applications" enctype="multipart/form-data" novalidate>
         {{ .CSRFToken }}
 
         <div class="panel-header">
@@ -80,6 +80,12 @@
             <span>Original link</span>
             <input name="posting_url" type="url" value="{{ .Values.PostingURL }}" autocomplete="url" aria-describedby="posting-url-error">
             {{ with .Errors.Get "posting_url" }}<strong id="posting-url-error">{{ . }}</strong>{{ end }}
+          </label>
+
+          <label>
+            <span>Posting PDF</span>
+            <input name="posting_pdf" type="file" accept="application/pdf,.pdf" aria-describedby="posting-pdf-error">
+            {{ with .Errors.Get "posting_pdf" }}<strong id="posting-pdf-error">{{ . }}</strong>{{ end }}
           </label>
 
           <label>
