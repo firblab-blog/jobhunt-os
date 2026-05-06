@@ -1,6 +1,8 @@
 stages:
   - validate
   - scan
+  - publish
+  - deploy
   - mirror
 
 include:
@@ -12,6 +14,12 @@ default:
   image: golang:1.26
   tags:
     - docker
+
+variables:
+  JOBHUNT_OS_IMAGE_COMMIT: "${CI_REGISTRY_IMAGE}/jobhunt-os:${CI_COMMIT_SHORT_SHA}"
+  JOBHUNT_OS_IMAGE_LATEST: "${CI_REGISTRY_IMAGE}/jobhunt-os:latest"
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
 
 .jobhunt-rules:
   rules:
@@ -49,6 +57,66 @@ sonarqube:analyze:
           -Dsonar.pullrequest.branch=${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}
           -Dsonar.pullrequest.base=${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $SONAR_HOST_URL && $SONAR_TOKEN
+
+docker:publish:
+  stage: publish
+  image: docker:28.0.1
+  services:
+    - name: docker:28.0.1-dind
+      command: ["--tls=false"]
+  needs:
+    - job: go:test
+    - job: sonarqube:analyze
+      optional: true
+  before_script: []
+  script:
+    - echo "${CI_REGISTRY_PASSWORD}" | docker login "${CI_REGISTRY}" --username "${CI_REGISTRY_USER}" --password-stdin
+    - docker build --pull -t "${JOBHUNT_OS_IMAGE_COMMIT}" -t "${JOBHUNT_OS_IMAGE_LATEST}" .
+    - docker push "${JOBHUNT_OS_IMAGE_COMMIT}"
+    - docker push "${JOBHUNT_OS_IMAGE_LATEST}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_REGISTRY && $CI_REGISTRY_USER && $CI_REGISTRY_PASSWORD
+
+deploy:prepare-vars:
+  stage: deploy
+  image: alpine:3.20
+  needs:
+    - job: docker:publish
+  before_script: []
+  script:
+    - printf 'UPSTREAM_JOBHUNT_OS_IMAGE=%s\n' "${JOBHUNT_OS_IMAGE_COMMIT}" > deploy.env
+  artifacts:
+    reports:
+      dotenv: deploy.env
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $JOBHUNT_OS_AUTO_DEPLOY == "true"
+
+deploy:firblab-v2:
+  stage: deploy
+  needs:
+    - job: deploy:prepare-vars
+      artifacts: true
+  trigger:
+    project: "${FIRBLAB_V2_PROJECT_PATH}"
+    branch: "${FIRBLAB_V2_DEPLOY_REF}"
+    strategy: depend
+  variables:
+    DEPLOY_TARGET: "jobhunt-os"
+    JOBHUNT_OS_IMAGE: "${UPSTREAM_JOBHUNT_OS_IMAGE}"
+    JOBHUNT_OS_REGISTRY_SERVER: "${JOBHUNT_OS_REGISTRY_SERVER}"
+    JOBHUNT_OS_REGISTRY_INSECURE: "${JOBHUNT_OS_REGISTRY_INSECURE}"
+    JOBHUNT_OS_REGISTRY_HOSTNAME: "${JOBHUNT_OS_REGISTRY_HOSTNAME}"
+    JOBHUNT_OS_REGISTRY_HOST_ADDRESS: "${JOBHUNT_OS_REGISTRY_HOST_ADDRESS}"
+    JOBHUNT_OS_GITLAB_HOSTNAME: "${JOBHUNT_OS_GITLAB_HOSTNAME}"
+    JOBHUNT_OS_GITLAB_HOST_ADDRESS: "${JOBHUNT_OS_GITLAB_HOST_ADDRESS}"
+    JOBHUNT_OS_DEPLOY_REGISTRY_USERNAME: "${JOBHUNT_OS_DEPLOY_REGISTRY_USERNAME}"
+    JOBHUNT_OS_DEPLOY_REGISTRY_PASSWORD: "${JOBHUNT_OS_DEPLOY_REGISTRY_PASSWORD}"
+    JOBHUNT_OS_REGISTRY_USERNAME: "${CI_REGISTRY_USER}"
+    JOBHUNT_OS_REGISTRY_PASSWORD: "${CI_REGISTRY_PASSWORD}"
+    VAULT_ADDR: "${VAULT_ADDR}"
+    VAULT_TOKEN: "${VAULT_TOKEN}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $JOBHUNT_OS_AUTO_DEPLOY == "true" && $FIRBLAB_V2_PROJECT_PATH && $FIRBLAB_V2_DEPLOY_REF && $VAULT_TOKEN
 
 mirror:github:
   stage: mirror

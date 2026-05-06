@@ -1,0 +1,14 @@
+.git
+.gitignore
+.gitlab-ci.yml
+.secrets
+bin
+coverage
+dist
+tmp
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+fixtures/**/*.yaml
+!fixtures/**/sample-*.yaml

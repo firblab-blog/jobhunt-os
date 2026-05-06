@@ -34,6 +34,18 @@ Set a different address with:
 JOBHUNT_ADDR=127.0.0.1:9090 go run ./cmd/jobhunt-os
 ```
 
+## Container
+
+The runtime image is a single static Go binary in a `scratch` image and runs as UID/GID `65532`.
+
+```sh
+docker build -t jobhunt-os:local .
+mkdir -p tmp/jobhunt-os-data/tmp
+docker run --rm --user "$(id -u):$(id -g)" -p 127.0.0.1:8080:8080 -v "$PWD/tmp/jobhunt-os-data:/data" jobhunt-os:local
+```
+
+For the private FirbLab deployment, GitLab CI publishes the image and triggers the `firblab-v2` `jobhunt-os` static runtime VM deploy. The app still stores data locally in SQLite under `JOBHUNT_DATA_DIR`; deployment data is expected to live on the VM data disk, not in the image or repository.
+
 ## Test
 
 ```sh
