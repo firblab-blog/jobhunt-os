@@ -38,7 +38,7 @@
               <tr>
                 <th>Name</th>
                 <th>Type</th>
-                <th>File path or reference</th>
+                <th>Reference</th>
                 <th>Updated</th>
               </tr>
             </thead>
@@ -48,7 +48,7 @@
                 <td>{{ .Name }}</td>
                 <td>{{ .TypeLabel }}</td>
                 <td>
-                  <span>{{ .StoragePath }}</span>
+                  {{ if .DownloadURL }}<a class="table-link" href="{{ .DownloadURL }}">Open PDF</a>{{ else }}<span>{{ .ReferenceLabel }}</span>{{ end }}
                   {{ if .Notes }}<small>{{ .Notes }}</small>{{ end }}
                 </td>
                 <td>{{ .Updated }}</td>

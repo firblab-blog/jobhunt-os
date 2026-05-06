@@ -111,6 +111,53 @@ func TestApplicationStoreCreateThenGetDetail(t *testing.T) {
 	}
 }
 
+func TestApplicationStoreUpdatePostingURLAndAttachDocument(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st := newMigratedApplicationStore(t)
+	app, err := st.CreateApplication(ctx, model.Application{
+		ID:      "app_posting",
+		Company: "Northstar Systems",
+		Role:    "Senior Platform Engineer",
+	})
+	if err != nil {
+		t.Fatalf("CreateApplication() error = %v", err)
+	}
+
+	updated, err := st.UpdateApplicationPostingURL(ctx, app.ID, "https://jobs.example.com/platform")
+	if err != nil {
+		t.Fatalf("UpdateApplicationPostingURL() error = %v", err)
+	}
+	if updated.PostingURL != "https://jobs.example.com/platform" {
+		t.Fatalf("PostingURL = %q", updated.PostingURL)
+	}
+
+	attached, err := st.AttachDocumentToApplication(ctx, app.ID, model.Document{
+		ID:          "doc_posting",
+		Name:        "Northstar job posting",
+		Type:        model.DocumentJobPosting,
+		StoragePath: "documents/app_posting/doc_posting.pdf",
+	}, model.AttachmentJobPosting, "")
+	if err != nil {
+		t.Fatalf("AttachDocumentToApplication() error = %v", err)
+	}
+	if attached.ApplicationID != app.ID || attached.Document.ID != "doc_posting" {
+		t.Fatalf("attached document = %#v", attached)
+	}
+
+	documents, err := st.ListApplicationDocuments(ctx, app.ID)
+	if err != nil {
+		t.Fatalf("ListApplicationDocuments() error = %v", err)
+	}
+	if len(documents) != 1 {
+		t.Fatalf("ListApplicationDocuments() len = %d, want 1", len(documents))
+	}
+	if documents[0].Document.Type != model.DocumentJobPosting || documents[0].AttachmentType != model.AttachmentJobPosting {
+		t.Fatalf("application document = %#v", documents[0])
+	}
+}
+
 func TestApplicationStoreNotFound(t *testing.T) {
 	t.Parallel()
 

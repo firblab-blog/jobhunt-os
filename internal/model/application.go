@@ -4,6 +4,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -118,6 +119,7 @@ type Application struct {
 	Status       ApplicationStatus
 	Priority     Priority
 	Source       string
+	PostingURL   string
 	Location     string
 	Compensation Compensation
 	Notes        string
@@ -140,10 +142,22 @@ func (a Application) ValidateForCreate() error {
 	if a.Priority != "" && !a.Priority.Valid() {
 		return fmt.Errorf("priority %q is invalid", a.Priority)
 	}
+	if strings.TrimSpace(a.PostingURL) != "" && !ValidHTTPURL(a.PostingURL) {
+		return errors.New("posting URL must be a valid HTTP or HTTPS URL")
+	}
 	if err := a.Compensation.Validate(); err != nil {
 		return err
 	}
 	return nil
+}
+
+// ValidHTTPURL reports whether raw is an absolute HTTP(S) URL.
+func ValidHTTPURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	return parsed.IsAbs() && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 // EventType is the persisted category for an application timeline event.

@@ -41,6 +41,10 @@
           <strong>{{ if .Application.Source }}{{ .Application.Source }}{{ else }}Not set{{ end }}</strong>
         </article>
         <article>
+          <span>Original link</span>
+          <strong>{{ if .Application.PostingURL }}<a class="table-link" href="{{ .Application.PostingURL }}" target="_blank" rel="noreferrer">Open posting</a>{{ else }}Not set{{ end }}</strong>
+        </article>
+        <article>
           <span>Location</span>
           <strong>{{ if .Application.Location }}{{ .Application.Location }}{{ else }}Not set{{ end }}</strong>
         </article>
@@ -155,6 +159,47 @@
             </label>
 
             <button type="submit">Update status</button>
+          </form>
+
+          <form class="side-panel detail-form" method="post" action="/applications/{{ .Application.ID }}/documents" enctype="multipart/form-data" novalidate>
+            {{ .CSRFToken }}
+            <p class="eyebrow">Job posting</p>
+            <h2>Link and PDF</h2>
+
+            {{ with .PostingForm.Errors.Get "form" }}
+            <div class="form-alert" role="alert">{{ . }}</div>
+            {{ end }}
+
+            <label>
+              <span>Original link</span>
+              <input name="posting_url" type="url" value="{{ .PostingForm.Values.PostingURL }}" aria-describedby="posting-url-error">
+              {{ with .PostingForm.Errors.Get "posting_url" }}<strong id="posting-url-error">{{ . }}</strong>{{ end }}
+            </label>
+
+            <label>
+              <span>Posting PDF</span>
+              <input name="posting_pdf" type="file" accept="application/pdf,.pdf" aria-describedby="posting-pdf-error">
+              {{ with .PostingForm.Errors.Get "posting_pdf" }}<strong id="posting-pdf-error">{{ . }}</strong>{{ end }}
+            </label>
+
+            {{ if .Documents }}
+            <div class="document-list">
+              {{ range .Documents }}
+              <article>
+                <div>
+                  <span>{{ .TypeLabel }}</span>
+                  <strong>{{ .Document.Name }}</strong>
+                  {{ if .Document.Notes }}<small>{{ .Document.Notes }}</small>{{ end }}
+                </div>
+                <a class="table-link" href="/documents/{{ .Document.ID }}/download">Open PDF</a>
+              </article>
+              {{ end }}
+            </div>
+            {{ else }}
+            <p class="empty-state">No posting PDF attached.</p>
+            {{ end }}
+
+            <button type="submit">Save posting</button>
           </form>
 
           <section class="side-panel">

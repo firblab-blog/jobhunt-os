@@ -2,12 +2,19 @@ package server
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"html/template"
+	"io"
 	"io/fs"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -17,10 +24,20 @@ import (
 	"github.com/firblab-blog/jobhunt-os/internal/store"
 )
 
+const (
+	maxPostingPDFBytes       int64 = 20 << 20
+	maxPostingMultipartBytes int64 = maxPostingPDFBytes + (2 << 20)
+)
+
 type Server struct {
 	mux       *http.ServeMux
 	templates *template.Template
 	store     store.ApplicationStore
+	dataDir   string
+}
+
+type Options struct {
+	DataDir string
 }
 
 type dashboardData struct {
@@ -77,8 +94,10 @@ type applicationShowData struct {
 	Updated          string
 	CSRFToken        template.HTML
 	Events           []applicationEventItem
+	Documents        []applicationDocumentItem
 	EventForm        applicationEventFormData
 	StatusForm       applicationStatusFormData
+	PostingForm      postingFormData
 	EventTypeOptions []selectOption
 	StatusOptions    []selectOption
 }
@@ -89,6 +108,7 @@ type applicationFormValues struct {
 	Status            string
 	Priority          string
 	Source            string
+	PostingURL        string
 	Location          string
 	NextActionSummary string
 	NextActionDue     string
@@ -124,6 +144,21 @@ type applicationStatusFormValues struct {
 	NextActionDue     string
 }
 
+type postingFormData struct {
+	Values postingFormValues
+	Errors formErrors
+}
+
+type postingFormValues struct {
+	PostingURL string
+}
+
+type applicationDocumentItem struct {
+	model.ApplicationDocument
+	TypeLabel string
+	Updated   string
+}
+
 type selectOption struct {
 	Value string
 	Label string
@@ -139,8 +174,10 @@ type documentsIndexData struct {
 
 type documentItem struct {
 	model.Document
-	TypeLabel string
-	Updated   string
+	TypeLabel      string
+	Updated        string
+	DownloadURL    string
+	ReferenceLabel string
 }
 
 type documentFormValues struct {
@@ -204,12 +241,17 @@ type exportApplication struct {
 }
 
 func New(appStore store.ApplicationStore) http.Handler {
+	return NewWithOptions(appStore, Options{})
+}
+
+func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler {
 	templates := template.Must(template.ParseFS(jobhuntos.Assets, "web/templates/*.html"))
 
 	s := &Server{
 		mux:       http.NewServeMux(),
 		templates: templates,
 		store:     appStore,
+		dataDir:   strings.TrimSpace(opts.DataDir),
 	}
 
 	staticFiles, err := fs.Sub(jobhuntos.Assets, "web/static")
@@ -225,9 +267,11 @@ func New(appStore store.ApplicationStore) http.Handler {
 	s.mux.HandleFunc("POST /applications", s.applicationsCreate)
 	s.mux.HandleFunc("POST /applications/{id}/events", s.applicationsAddEvent)
 	s.mux.HandleFunc("POST /applications/{id}/status", s.applicationsUpdateStatus)
+	s.mux.HandleFunc("POST /applications/{id}/documents", s.applicationsUpdatePosting)
 	s.mux.HandleFunc("GET /applications/{id}", s.applicationsShow)
 	s.mux.HandleFunc("GET /documents", s.documentsIndex)
 	s.mux.HandleFunc("POST /documents", s.documentsCreate)
+	s.mux.HandleFunc("GET /documents/{id}/download", s.documentsDownload)
 	s.mux.HandleFunc("GET /contacts", s.contactsIndex)
 	s.mux.HandleFunc("POST /contacts", s.contactsCreate)
 	s.mux.HandleFunc("GET /follow-ups", s.followUpsIndex)
@@ -475,6 +519,37 @@ func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 	s.renderDocumentsIndex(w, r, documents, values, form.errors, http.StatusUnprocessableEntity)
 }
 
+func (s *Server) documentsDownload(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		serverError(w, r, errors.New("application store is not configured"))
+		return
+	}
+	if s.dataDir == "" {
+		serverError(w, r, errors.New("document storage directory is not configured"))
+		return
+	}
+
+	document, err := s.store.GetDocument(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		serverError(w, r, err)
+		return
+	}
+
+	path, err := safeDocumentPath(s.dataDir, document.StoragePath)
+	if err != nil {
+		serverError(w, r, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `inline; filename="`+downloadFileName(document.Name)+`.pdf"`)
+	http.ServeFile(w, r, path)
+}
+
 func (s *Server) contactsIndex(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
 		serverError(w, r, errors.New("application store is not configured"))
@@ -616,7 +691,7 @@ func (s *Server) applicationsShow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app, events, err := s.applicationDetail(r, r.PathValue("id"))
+	app, events, documents, err := s.applicationDetail(r, r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
 		return
@@ -626,10 +701,12 @@ func (s *Server) applicationsShow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.renderApplicationDetail(w, r, app, events, applicationEventFormData{
+	s.renderApplicationDetail(w, r, app, events, documents, applicationEventFormData{
 		Values: defaultApplicationEventFormValues(time.Now()),
 	}, applicationStatusFormData{
 		Values: applicationStatusFormValuesFromApplication(app),
+	}, postingFormData{
+		Values: postingFormValuesFromApplication(app),
 	}, http.StatusOK)
 }
 
@@ -653,7 +730,7 @@ func (s *Server) applicationsAddEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app, events, err := s.applicationDetail(r, r.PathValue("id"))
+	app, events, documents, err := s.applicationDetail(r, r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
 		return
@@ -679,11 +756,13 @@ func (s *Server) applicationsAddEvent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.renderApplicationDetail(w, r, app, events, applicationEventFormData{
+	s.renderApplicationDetail(w, r, app, events, documents, applicationEventFormData{
 		Values: values,
 		Errors: form.errors,
 	}, applicationStatusFormData{
 		Values: applicationStatusFormValuesFromApplication(app),
+	}, postingFormData{
+		Values: postingFormValuesFromApplication(app),
 	}, http.StatusUnprocessableEntity)
 }
 
@@ -707,7 +786,7 @@ func (s *Server) applicationsUpdateStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	app, events, err := s.applicationDetail(r, r.PathValue("id"))
+	app, events, documents, err := s.applicationDetail(r, r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
 		return
@@ -733,9 +812,94 @@ func (s *Server) applicationsUpdateStatus(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	s.renderApplicationDetail(w, r, app, events, applicationEventFormData{
+	s.renderApplicationDetail(w, r, app, events, documents, applicationEventFormData{
 		Values: defaultApplicationEventFormValues(time.Now()),
 	}, applicationStatusFormData{
+		Values: values,
+		Errors: form.errors,
+	}, postingFormData{
+		Values: postingFormValuesFromApplication(app),
+	}, http.StatusUnprocessableEntity)
+}
+
+func (s *Server) applicationsUpdatePosting(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		serverError(w, r, errors.New("application store is not configured"))
+		return
+	}
+
+	form, file, fileHeader, err := parsePostingMultipartForm(w, r)
+	if err != nil {
+		if errors.Is(err, errFormTooLarge) {
+			http.Error(w, "form body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "invalid form body", http.StatusBadRequest)
+		return
+	}
+	if file != nil {
+		defer file.Close()
+	}
+	if err := verifyCSRF(r, time.Now()); err != nil {
+		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
+		return
+	}
+
+	app, events, documents, err := s.applicationDetail(r, r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		serverError(w, r, err)
+		return
+	}
+
+	values := postingFormValuesFromForm(form)
+	postingURL := strings.TrimSpace(values.PostingURL)
+	if postingURL != "" && !model.ValidHTTPURL(postingURL) {
+		form.errors.Add("posting_url", "Original link must be a valid HTTP or HTTPS URL.")
+	}
+	hasFile := fileHeader != nil && fileHeader.Filename != ""
+	if !hasFile && postingURL == app.PostingURL {
+		form.errors.Add("form", "Update the original link or choose a PDF to attach.")
+	}
+	if hasFile && s.dataDir == "" {
+		form.errors.Add("posting_pdf", "Document storage is not configured.")
+	}
+
+	if !form.errors.Any() {
+		if postingURL != app.PostingURL {
+			updated, err := s.store.UpdateApplicationPostingURL(r.Context(), app.ID, postingURL)
+			if err != nil {
+				form.errors.Add("form", "Could not update original link.")
+				slog.Error("update application posting url", "error", err)
+			} else {
+				app = updated
+			}
+		}
+	}
+
+	if !form.errors.Any() && hasFile {
+		document, err := s.savePostingPDF(r.Context(), app, file, fileHeader)
+		if err != nil {
+			form.errors.Add("posting_pdf", "Could not save PDF. Choose a valid PDF under 20 MB.")
+			slog.Error("save posting pdf", "error", err)
+		} else {
+			documents = append([]model.ApplicationDocument{document}, documents...)
+		}
+	}
+
+	if !form.errors.Any() {
+		http.Redirect(w, r, "/applications/"+app.ID, http.StatusSeeOther)
+		return
+	}
+
+	s.renderApplicationDetail(w, r, app, events, documents, applicationEventFormData{
+		Values: defaultApplicationEventFormValues(time.Now()),
+	}, applicationStatusFormData{
+		Values: applicationStatusFormValuesFromApplication(app),
+	}, postingFormData{
 		Values: values,
 		Errors: form.errors,
 	}, http.StatusUnprocessableEntity)
@@ -757,7 +921,7 @@ func (s *Server) renderApplicationForm(w http.ResponseWriter, r *http.Request, v
 	}, status)
 }
 
-func (s *Server) renderApplicationDetail(w http.ResponseWriter, r *http.Request, app model.Application, events []model.ApplicationEvent, eventForm applicationEventFormData, statusForm applicationStatusFormData, status int) {
+func (s *Server) renderApplicationDetail(w http.ResponseWriter, r *http.Request, app model.Application, events []model.ApplicationEvent, documents []model.ApplicationDocument, eventForm applicationEventFormData, statusForm applicationStatusFormData, postingForm postingFormData, status int) {
 	token, err := issueCSRFToken(w, time.Now())
 	if err != nil {
 		serverError(w, r, err)
@@ -773,6 +937,15 @@ func (s *Server) renderApplicationDetail(w http.ResponseWriter, r *http.Request,
 		})
 	}
 
+	documentItems := make([]applicationDocumentItem, 0, len(documents))
+	for _, document := range documents {
+		documentItems = append(documentItems, applicationDocumentItem{
+			ApplicationDocument: document,
+			TypeLabel:           documentTypeLabel(document.Document.Type),
+			Updated:             shortDate(document.Document.UpdatedAt),
+		})
+	}
+
 	s.renderWithStatus(w, r, "applications_show.html", applicationShowData{
 		Application:      app,
 		StatusLabel:      statusLabel(app.Status),
@@ -782,8 +955,10 @@ func (s *Server) renderApplicationDetail(w http.ResponseWriter, r *http.Request,
 		Updated:          longDate(app.UpdatedAt),
 		CSRFToken:        csrfField(token),
 		Events:           items,
+		Documents:        documentItems,
 		EventForm:        eventForm,
 		StatusForm:       statusForm,
+		PostingForm:      postingForm,
 		EventTypeOptions: applicationEventTypeOptions(),
 		StatusOptions:    applicationStatusOptions(),
 	}, status)
@@ -799,9 +974,11 @@ func (s *Server) renderDocumentsIndex(w http.ResponseWriter, r *http.Request, do
 	items := make([]documentItem, 0, len(documents))
 	for _, document := range documents {
 		items = append(items, documentItem{
-			Document:  document,
-			TypeLabel: documentTypeLabel(document.Type),
-			Updated:   shortDate(document.UpdatedAt),
+			Document:       document,
+			TypeLabel:      documentTypeLabel(document.Type),
+			Updated:        shortDate(document.UpdatedAt),
+			DownloadURL:    documentDownloadURL(document),
+			ReferenceLabel: documentReferenceLabel(document),
 		})
 	}
 
@@ -853,18 +1030,176 @@ func (s *Server) renderWithStatus(w http.ResponseWriter, r *http.Request, name s
 	_, _ = w.Write(body.Bytes())
 }
 
-func (s *Server) applicationDetail(r *http.Request, id string) (model.Application, []model.ApplicationEvent, error) {
+func parsePostingMultipartForm(w http.ResponseWriter, r *http.Request) (*formData, multipart.File, *multipart.FileHeader, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxPostingMultipartBytes)
+	if err := r.ParseMultipartForm(maxPostingPDFBytes); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return nil, nil, nil, errFormTooLarge
+		}
+		return nil, nil, nil, err
+	}
+
+	form := &formData{
+		values: trimmedValues(r.PostForm),
+		errors: formErrors{},
+	}
+
+	file, header, err := r.FormFile("posting_pdf")
+	if err != nil {
+		if errors.Is(err, http.ErrMissingFile) {
+			return form, nil, nil, nil
+		}
+		return nil, nil, nil, err
+	}
+
+	return form, file, header, nil
+}
+
+func (s *Server) savePostingPDF(ctx context.Context, app model.Application, file multipart.File, header *multipart.FileHeader) (model.ApplicationDocument, error) {
+	if file == nil || header == nil || strings.TrimSpace(header.Filename) == "" {
+		return model.ApplicationDocument{}, errors.New("posting PDF is required")
+	}
+	if header.Size <= 0 || header.Size > maxPostingPDFBytes {
+		return model.ApplicationDocument{}, errors.New("posting PDF size is invalid")
+	}
+
+	documentID, err := newDocumentUploadID()
+	if err != nil {
+		return model.ApplicationDocument{}, err
+	}
+	storagePath := filepath.ToSlash(filepath.Join("documents", app.ID, documentID+".pdf"))
+	destination, err := safeDocumentPath(s.dataDir, storagePath)
+	if err != nil {
+		return model.ApplicationDocument{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		return model.ApplicationDocument{}, err
+	}
+
+	out, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return model.ApplicationDocument{}, err
+	}
+	removeDestination := true
+	defer func() {
+		_ = out.Close()
+		if removeDestination {
+			_ = os.Remove(destination)
+		}
+	}()
+
+	headerBytes := make([]byte, 512)
+	n, err := file.Read(headerBytes)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return model.ApplicationDocument{}, err
+	}
+	if !bytes.HasPrefix(headerBytes[:n], []byte("%PDF-")) {
+		return model.ApplicationDocument{}, errors.New("posting document is not a PDF")
+	}
+	if _, err := out.Write(headerBytes[:n]); err != nil {
+		return model.ApplicationDocument{}, err
+	}
+	if _, err := io.Copy(out, io.LimitReader(file, maxPostingPDFBytes-int64(n)+1)); err != nil {
+		return model.ApplicationDocument{}, err
+	}
+
+	document := model.Document{
+		ID:          documentID,
+		Name:        app.Company + " - " + app.Role + " job posting",
+		Type:        model.DocumentJobPosting,
+		StoragePath: storagePath,
+		Notes:       "PDF snapshot saved from application detail.",
+	}
+	attached, err := s.store.AttachDocumentToApplication(ctx, app.ID, document, model.AttachmentJobPosting, "")
+	if err != nil {
+		return model.ApplicationDocument{}, err
+	}
+
+	removeDestination = false
+	return attached, nil
+}
+
+func newDocumentUploadID() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return "doc_" + hex.EncodeToString(buf), nil
+}
+
+func safeDocumentPath(dataDir string, storagePath string) (string, error) {
+	if strings.TrimSpace(dataDir) == "" {
+		return "", errors.New("document storage directory is required")
+	}
+	if strings.TrimSpace(storagePath) == "" {
+		return "", errors.New("document storage path is required")
+	}
+	if filepath.IsAbs(storagePath) {
+		return "", errors.New("document storage path must be relative")
+	}
+
+	root, err := filepath.Abs(dataDir)
+	if err != nil {
+		return "", err
+	}
+	target, err := filepath.Abs(filepath.Join(root, filepath.FromSlash(storagePath)))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return "", errors.New("document storage path escapes data directory")
+	}
+
+	return target, nil
+}
+
+func downloadFileName(name string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if name == "" {
+		return "document"
+	}
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteRune('-')
+		}
+	}
+	result := strings.Trim(b.String(), "-_")
+	if result == "" {
+		return "document"
+	}
+	return result
+}
+
+func (s *Server) applicationDetail(r *http.Request, id string) (model.Application, []model.ApplicationEvent, []model.ApplicationDocument, error) {
 	app, err := s.store.GetApplication(r.Context(), id)
 	if err != nil {
-		return model.Application{}, nil, err
+		return model.Application{}, nil, nil, err
 	}
 
 	events, err := s.store.ListApplicationEvents(r.Context(), app.ID)
 	if err != nil {
-		return model.Application{}, nil, err
+		return model.Application{}, nil, nil, err
 	}
 
-	return app, events, nil
+	documents, err := s.store.ListApplicationDocuments(r.Context(), app.ID)
+	if err != nil {
+		return model.Application{}, nil, nil, err
+	}
+
+	return app, events, documents, nil
 }
 
 func (s *Server) exportSnapshot(r *http.Request) (exportSnapshot, error) {
@@ -909,6 +1244,7 @@ func applicationFormValuesFromForm(form *formData) applicationFormValues {
 		Status:            form.Value("status"),
 		Priority:          form.Value("priority"),
 		Source:            form.Value("source"),
+		PostingURL:        form.Value("posting_url"),
 		Location:          form.Value("location"),
 		NextActionSummary: form.Value("next_action_summary"),
 		NextActionDue:     form.Value("next_action_due"),
@@ -918,13 +1254,14 @@ func applicationFormValuesFromForm(form *formData) applicationFormValues {
 
 func applicationFromForm(form *formData) model.Application {
 	app := model.Application{
-		Company:  form.RequiredString("company", "Company"),
-		Role:     form.RequiredString("role", "Role"),
-		Status:   model.ApplicationStatus(form.RequiredString("status", "Status")),
-		Priority: model.Priority(form.RequiredString("priority", "Priority")),
-		Source:   form.Value("source"),
-		Location: form.Value("location"),
-		Notes:    form.Value("notes"),
+		Company:    form.RequiredString("company", "Company"),
+		Role:       form.RequiredString("role", "Role"),
+		Status:     model.ApplicationStatus(form.RequiredString("status", "Status")),
+		Priority:   model.Priority(form.RequiredString("priority", "Priority")),
+		Source:     form.Value("source"),
+		PostingURL: form.Value("posting_url"),
+		Location:   form.Value("location"),
+		Notes:      form.Value("notes"),
 		NextAction: model.NextAction{
 			Summary: form.Value("next_action_summary"),
 		},
@@ -936,11 +1273,22 @@ func applicationFromForm(form *formData) model.Application {
 	if app.Priority != "" && !app.Priority.Valid() {
 		form.errors.Add("priority", "Priority must be low, normal, or high.")
 	}
+	if app.PostingURL != "" && !model.ValidHTTPURL(app.PostingURL) {
+		form.errors.Add("posting_url", "Original link must be a valid HTTP or HTTPS URL.")
+	}
 	if due, ok := form.OptionalDate("next_action_due", "Next action due"); ok {
 		app.NextAction.Due = &due
 	}
 
 	return app
+}
+
+func postingFormValuesFromApplication(app model.Application) postingFormValues {
+	return postingFormValues{PostingURL: app.PostingURL}
+}
+
+func postingFormValuesFromForm(form *formData) postingFormValues {
+	return postingFormValues{PostingURL: form.Value("posting_url")}
 }
 
 func applicationEventFormValuesFromForm(form *formData) applicationEventFormValues {
@@ -1029,6 +1377,7 @@ func documentTypeOptions() []selectOption {
 		{Value: string(model.DocumentWorkSample), Label: "Work sample"},
 		{Value: string(model.DocumentSnippet), Label: "Snippet"},
 		{Value: string(model.DocumentPortfolio), Label: "Portfolio"},
+		{Value: string(model.DocumentJobPosting), Label: "Job posting"},
 		{Value: string(model.DocumentOther), Label: "Other"},
 	}
 }
@@ -1092,6 +1441,20 @@ func documentTypeLabel(documentType model.DocumentType) string {
 		}
 	}
 	return string(documentType)
+}
+
+func documentDownloadURL(document model.Document) string {
+	if strings.HasPrefix(filepath.ToSlash(document.StoragePath), "documents/") {
+		return "/documents/" + document.ID + "/download"
+	}
+	return ""
+}
+
+func documentReferenceLabel(document model.Document) string {
+	if documentDownloadURL(document) != "" {
+		return "Stored PDF"
+	}
+	return "Reference recorded"
 }
 
 func documentFormValuesFromForm(form *formData) documentFormValues {

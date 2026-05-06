@@ -480,6 +480,41 @@ label strong {
   white-space: pre-wrap;
 }
 
+.document-list {
+  display: grid;
+  gap: 10px;
+}
+
+.document-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--bg);
+}
+
+.document-list span,
+.document-list small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.document-list strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.document-list small {
+  margin-top: 5px;
+  line-height: 1.35;
+}
+
 .meta-line {
   margin-top: 16px;
   font-size: 13px;
@@ -533,6 +568,10 @@ label strong {
   }
 
   .timeline-item {
+    grid-template-columns: 1fr;
+  }
+
+  .document-list article {
     grid-template-columns: 1fr;
   }
 

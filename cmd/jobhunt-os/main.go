@@ -40,7 +40,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         cfg.Addr,
-		Handler:      server.New(sqlite.NewStore(db)),
+		Handler:      server.NewWithOptions(sqlite.NewStore(db), server.Options{DataDir: cfg.DataDir}),
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
 		IdleTimeout:  cfg.IdleTimeout,

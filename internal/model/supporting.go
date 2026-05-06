@@ -14,12 +14,33 @@ const (
 	DocumentWorkSample  DocumentType = "work_sample"
 	DocumentSnippet     DocumentType = "snippet"
 	DocumentPortfolio   DocumentType = "portfolio"
+	DocumentJobPosting  DocumentType = "job_posting"
 	DocumentOther       DocumentType = "other"
 )
 
 func (d DocumentType) Valid() bool {
 	switch d {
-	case DocumentResume, DocumentCoverLetter, DocumentWorkSample, DocumentSnippet, DocumentPortfolio, DocumentOther:
+	case DocumentResume, DocumentCoverLetter, DocumentWorkSample, DocumentSnippet, DocumentPortfolio, DocumentJobPosting, DocumentOther:
+		return true
+	default:
+		return false
+	}
+}
+
+type AttachmentType string
+
+const (
+	AttachmentResume      AttachmentType = "resume"
+	AttachmentCoverLetter AttachmentType = "cover_letter"
+	AttachmentWorkSample  AttachmentType = "work_sample"
+	AttachmentPortfolio   AttachmentType = "portfolio"
+	AttachmentJobPosting  AttachmentType = "job_posting"
+	AttachmentOther       AttachmentType = "other"
+)
+
+func (a AttachmentType) Valid() bool {
+	switch a {
+	case AttachmentResume, AttachmentCoverLetter, AttachmentWorkSample, AttachmentPortfolio, AttachmentJobPosting, AttachmentOther:
 		return true
 	default:
 		return false
@@ -34,6 +55,15 @@ type Document struct {
 	Notes       string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type ApplicationDocument struct {
+	ApplicationID  string
+	Document       Document
+	AttachmentType AttachmentType
+	SubmittedAt    *time.Time
+	Notes          string
+	CreatedAt      time.Time
 }
 
 func (d Document) ValidateForCreate() error {

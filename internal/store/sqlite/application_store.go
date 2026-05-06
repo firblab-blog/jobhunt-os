@@ -66,6 +66,7 @@ func (s *Store) CreateApplication(ctx context.Context, app model.Application) (m
 		string(app.Status),
 		string(app.Priority),
 		app.Source,
+		app.PostingURL,
 		app.Location,
 		app.Compensation.MinCents,
 		app.Compensation.MaxCents,
@@ -181,6 +182,31 @@ func (s *Store) UpdateApplicationStatusAndNextAction(ctx context.Context, id str
 	return app, nil
 }
 
+func (s *Store) UpdateApplicationPostingURL(ctx context.Context, id string, postingURL string) (model.Application, error) {
+	id = strings.TrimSpace(id)
+	postingURL = strings.TrimSpace(postingURL)
+	if id == "" {
+		return model.Application{}, fmt.Errorf("application id is required")
+	}
+	if postingURL != "" && !model.ValidHTTPURL(postingURL) {
+		return model.Application{}, fmt.Errorf("posting URL is invalid")
+	}
+
+	result, err := s.db.ExecContext(ctx, updateApplicationPostingURLSQL, postingURL, id)
+	if err != nil {
+		return model.Application{}, fmt.Errorf("update application posting url: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return model.Application{}, fmt.Errorf("check application posting url update: %w", err)
+	}
+	if updated == 0 {
+		return model.Application{}, store.ErrNotFound
+	}
+
+	return s.GetApplication(ctx, id)
+}
+
 func (s *Store) AddApplicationEvent(ctx context.Context, event model.ApplicationEvent) (model.ApplicationEvent, error) {
 	event = normalizeApplicationEventForCreate(event)
 	if event.ID == "" {
@@ -247,6 +273,7 @@ func scanApplication(row applicationScanner) (model.Application, error) {
 		&app.Status,
 		&app.Priority,
 		&app.Source,
+		&app.PostingURL,
 		&app.Location,
 		&minCents,
 		&maxCents,
@@ -341,6 +368,7 @@ func normalizeApplicationForCreate(app model.Application) model.Application {
 	app.Company = strings.TrimSpace(app.Company)
 	app.Role = strings.TrimSpace(app.Role)
 	app.Source = strings.TrimSpace(app.Source)
+	app.PostingURL = strings.TrimSpace(app.PostingURL)
 	app.Location = strings.TrimSpace(app.Location)
 	app.Compensation.Currency = strings.TrimSpace(app.Compensation.Currency)
 	app.Compensation.Notes = strings.TrimSpace(app.Compensation.Notes)
@@ -454,6 +482,7 @@ role,
 status,
 priority,
 source,
+posting_url,
 location,
 comp_min_cents,
 comp_max_cents,
@@ -486,6 +515,7 @@ INSERT INTO applications (
   status,
   priority,
   source,
+  posting_url,
   location,
   comp_min_cents,
   comp_max_cents,
@@ -495,7 +525,14 @@ INSERT INTO applications (
   next_action_due,
   next_action_summary
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+`
+
+const updateApplicationPostingURLSQL = `
+UPDATE applications
+SET posting_url = ?,
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?;
 `
 
 const updateApplicationStatusAndNextActionSQL = `

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -282,13 +285,54 @@ func TestApplicationsShowRendersFormsAndEmptyStates(t *testing.T) {
 	for _, want := range []string{
 		`action="/applications/app_1/events"`,
 		`action="/applications/app_1/status"`,
+		`action="/applications/app_1/documents"`,
 		`name="csrf_token"`,
 		"No timeline events yet.",
+		"No posting PDF attached.",
 		"No notes recorded.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body does not contain %q", want)
 		}
+	}
+}
+
+func TestApplicationsShowRendersPostingLinkAndDocuments(t *testing.T) {
+	t.Parallel()
+
+	app := testApplication()
+	app.PostingURL = "https://jobs.example.com/platform"
+	document := model.Document{
+		ID:          "doc_1",
+		Name:        "Northstar posting",
+		Type:        model.DocumentJobPosting,
+		StoragePath: "documents/app_1/doc_1.pdf",
+		CreatedAt:   time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC),
+	}
+	rec := requestWithStore(http.MethodGet, "/applications/app_1", nil, &fakeApplicationStore{
+		applications: []model.Application{app},
+		appDocuments: []model.ApplicationDocument{
+			{ApplicationID: "app_1", Document: document, AttachmentType: model.AttachmentJobPosting},
+		},
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`href="https://jobs.example.com/platform"`,
+		`href="/documents/doc_1/download"`,
+		"Northstar posting",
+		"Job posting",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body does not contain %q", want)
+		}
+	}
+	if strings.Contains(body, "documents/app_1/doc_1.pdf") {
+		t.Fatalf("body exposed raw storage path")
 	}
 }
 
@@ -492,6 +536,92 @@ func TestApplicationsUpdateStatusAndNextAction(t *testing.T) {
 	}
 	if update.nextAction.Due == nil || update.nextAction.Due.Format("2006-01-02") != "2026-05-08" {
 		t.Fatalf("NextAction.Due = %v, want 2026-05-08", update.nextAction.Due)
+	}
+}
+
+func TestApplicationsUpdatePostingUploadsPDFAndURL(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	appStore := &fakeApplicationStore{
+		applications: []model.Application{testApplication()},
+	}
+	cookie, token := newDetailCSRF(t, appStore, "app_1")
+	form := map[string]string{
+		csrfFieldName: token,
+		"posting_url": "https://jobs.example.com/platform",
+	}
+	rec := postMultipartWithCookie(
+		"/applications/app_1/documents",
+		form,
+		"posting.pdf",
+		[]byte("%PDF-1.7\nsaved posting\n"),
+		cookie,
+		appStore,
+		dataDir,
+	)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusSeeOther, rec.Body.String())
+	}
+	if location := rec.Header().Get("Location"); location != "/applications/app_1" {
+		t.Fatalf("Location = %q, want detail redirect", location)
+	}
+	updated, err := appStore.GetApplication(context.Background(), "app_1")
+	if err != nil {
+		t.Fatalf("GetApplication() error = %v", err)
+	}
+	if updated.PostingURL != "https://jobs.example.com/platform" {
+		t.Fatalf("PostingURL = %q", updated.PostingURL)
+	}
+	if len(appStore.appDocuments) != 1 {
+		t.Fatalf("appDocuments len = %d, want 1", len(appStore.appDocuments))
+	}
+	attached := appStore.appDocuments[0]
+	if attached.AttachmentType != model.AttachmentJobPosting || attached.Document.Type != model.DocumentJobPosting {
+		t.Fatalf("attached document = %#v", attached)
+	}
+	if filepath.IsAbs(attached.Document.StoragePath) {
+		t.Fatalf("StoragePath = %q, want relative path", attached.Document.StoragePath)
+	}
+	if !strings.HasPrefix(attached.Document.StoragePath, "documents/app_1/") {
+		t.Fatalf("StoragePath = %q, want application document path", attached.Document.StoragePath)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, filepath.FromSlash(attached.Document.StoragePath))); err != nil {
+		t.Fatalf("uploaded PDF was not saved: %v", err)
+	}
+}
+
+func TestApplicationsUpdatePostingRejectsNonPDF(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	appStore := &fakeApplicationStore{
+		applications: []model.Application{testApplication()},
+	}
+	cookie, token := newDetailCSRF(t, appStore, "app_1")
+	form := map[string]string{
+		csrfFieldName: token,
+		"posting_url": "https://jobs.example.com/platform",
+	}
+	rec := postMultipartWithCookie(
+		"/applications/app_1/documents",
+		form,
+		"posting.txt",
+		[]byte("not a pdf"),
+		cookie,
+		appStore,
+		dataDir,
+	)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnprocessableEntity)
+	}
+	if len(appStore.appDocuments) != 0 {
+		t.Fatalf("appDocuments len = %d, want 0", len(appStore.appDocuments))
+	}
+	if !strings.Contains(rec.Body.String(), "Could not save PDF") {
+		t.Fatalf("body does not contain PDF validation error")
 	}
 }
 
@@ -699,6 +829,28 @@ func postFormWithCookie(target string, form url.Values, cookie *http.Cookie, app
 	return rec
 }
 
+func postMultipartWithCookie(target string, fields map[string]string, fileName string, fileContent []byte, cookie *http.Cookie, appStore store.ApplicationStore, dataDir string) *httptest.ResponseRecorder {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for name, value := range fields {
+		_ = writer.WriteField(name, value)
+	}
+	if fileName != "" {
+		part, _ := writer.CreateFormFile("posting_pdf", fileName)
+		_, _ = part.Write(fileContent)
+	}
+	_ = writer.Close()
+
+	req := httptest.NewRequest(http.MethodPost, target, &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+
+	NewWithOptions(appStore, Options{DataDir: dataDir}).ServeHTTP(rec, req)
+
+	return rec
+}
+
 func extractCSRFToken(t *testing.T, body string) string {
 	t.Helper()
 
@@ -736,6 +888,7 @@ type fakeApplicationStore struct {
 	applications     []model.Application
 	events           []model.ApplicationEvent
 	documents        []model.Document
+	appDocuments     []model.ApplicationDocument
 	contacts         []model.Contact
 	created          []model.Application
 	createdDocuments []model.Document
@@ -782,8 +935,37 @@ func (f *fakeApplicationStore) ListApplicationEvents(_ context.Context, applicat
 	return events, nil
 }
 
+func (f *fakeApplicationStore) ListApplicationDocuments(_ context.Context, applicationID string) ([]model.ApplicationDocument, error) {
+	var documents []model.ApplicationDocument
+	for _, document := range f.appDocuments {
+		if document.ApplicationID == applicationID {
+			documents = append(documents, document)
+		}
+	}
+	return documents, nil
+}
+
 func (f *fakeApplicationStore) ListDocuments(context.Context) ([]model.Document, error) {
 	return append([]model.Document(nil), f.documents...), nil
+}
+
+func (f *fakeApplicationStore) GetDocument(_ context.Context, id string) (model.Document, error) {
+	for _, document := range f.documents {
+		if document.ID == id {
+			return document, nil
+		}
+	}
+	for _, attached := range f.appDocuments {
+		if attached.Document.ID == id {
+			return attached.Document, nil
+		}
+	}
+	for _, document := range f.createdDocuments {
+		if document.ID == id {
+			return document, nil
+		}
+	}
+	return model.Document{}, store.ErrNotFound
 }
 
 func (f *fakeApplicationStore) CountDocuments(context.Context) (int, error) {
@@ -802,6 +984,24 @@ func (f *fakeApplicationStore) CreateApplication(_ context.Context, app model.Ap
 	app.CreatedAt = time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
 	app.UpdatedAt = app.CreatedAt
 	f.created = append(f.created, app)
+	return app, nil
+}
+
+func (f *fakeApplicationStore) UpdateApplicationPostingURL(_ context.Context, id string, postingURL string) (model.Application, error) {
+	app, err := f.GetApplication(context.Background(), id)
+	if err != nil {
+		return model.Application{}, err
+	}
+	if postingURL != "" && !model.ValidHTTPURL(postingURL) {
+		return model.Application{}, errors.New("invalid posting url")
+	}
+	for i := range f.applications {
+		if f.applications[i].ID == id {
+			f.applications[i].PostingURL = postingURL
+			return f.applications[i], nil
+		}
+	}
+	app.PostingURL = postingURL
 	return app, nil
 }
 
@@ -851,6 +1051,35 @@ func (f *fakeApplicationStore) CreateDocument(_ context.Context, document model.
 	document.UpdatedAt = document.CreatedAt
 	f.createdDocuments = append(f.createdDocuments, document)
 	return document, nil
+}
+
+func (f *fakeApplicationStore) AttachDocumentToApplication(_ context.Context, applicationID string, document model.Document, attachmentType model.AttachmentType, notes string) (model.ApplicationDocument, error) {
+	if _, err := f.GetApplication(context.Background(), applicationID); err != nil {
+		return model.ApplicationDocument{}, err
+	}
+	if err := document.ValidateForCreate(); err != nil {
+		return model.ApplicationDocument{}, err
+	}
+	if !attachmentType.Valid() {
+		return model.ApplicationDocument{}, errors.New("invalid attachment type")
+	}
+	now := time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
+	if document.CreatedAt.IsZero() {
+		document.CreatedAt = now
+	}
+	if document.UpdatedAt.IsZero() {
+		document.UpdatedAt = now
+	}
+	attached := model.ApplicationDocument{
+		ApplicationID:  applicationID,
+		Document:       document,
+		AttachmentType: attachmentType,
+		Notes:          notes,
+		CreatedAt:      now,
+	}
+	f.createdDocuments = append(f.createdDocuments, document)
+	f.appDocuments = append(f.appDocuments, attached)
+	return attached, nil
 }
 
 func (f *fakeApplicationStore) CreateContact(_ context.Context, contact model.Contact) (model.Contact, error) {

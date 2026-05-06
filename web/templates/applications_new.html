@@ -77,6 +77,12 @@
           </label>
 
           <label>
+            <span>Original link</span>
+            <input name="posting_url" type="url" value="{{ .Values.PostingURL }}" autocomplete="url" aria-describedby="posting-url-error">
+            {{ with .Errors.Get "posting_url" }}<strong id="posting-url-error">{{ . }}</strong>{{ end }}
+          </label>
+
+          <label>
             <span>Location</span>
             <input name="location" value="{{ .Values.Location }}" autocomplete="address-level2">
           </label>
