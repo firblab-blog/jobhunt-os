@@ -1,0 +1,9 @@
+.DS_Store
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+/bin/
+/dist/
+/coverage.out
+/tmp/

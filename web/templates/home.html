@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JobHunt OS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Local-first career command center</p>
+        <h1>JobHunt OS</h1>
+      </div>
+      <nav aria-label="Primary">
+        <a href="/">Dashboard</a>
+        <a href="/">Applications</a>
+        <a href="/">Documents</a>
+        <a href="/">Follow-ups</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="summary" aria-label="Job hunt summary">
+        {{ range .Metrics }}
+        <article>
+          <span>{{ .Label }}</span>
+          <strong>{{ .Value }}</strong>
+        </article>
+        {{ end }}
+      </section>
+
+      <section class="workspace">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Application pipeline</p>
+              <h2>Current focus</h2>
+            </div>
+            <button type="button">New application</button>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Next action</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{ range .Applications }}
+              <tr>
+                <td>{{ .Company }}</td>
+                <td>{{ .Role }}</td>
+                <td><span class="status">{{ .Status }}</span></td>
+                <td>{{ .NextAction }}</td>
+                <td>{{ .Updated }}</td>
+              </tr>
+              {{ end }}
+            </tbody>
+          </table>
+        </div>
+
+        <aside class="side-panel">
+          <p class="eyebrow">Today</p>
+          <h2>Next actions</h2>
+          <ul>
+            <li>Prep system design notes for Northstar Systems.</li>
+            <li>Send recruiter follow-up for Atlas Cloud.</li>
+            <li>Attach tailored cover letter to Signal Works draft.</li>
+          </ul>
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>

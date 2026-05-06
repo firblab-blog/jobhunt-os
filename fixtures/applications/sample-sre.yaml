@@ -1,0 +1,21 @@
+# Synthetic fixture only. Do not use real application data in public fixtures.
+company: Northstar Systems
+role: Senior Platform Engineer
+status: interviewing
+priority: high
+source: recruiter
+location: Remote US
+compensation: 180000-220000 base
+contacts:
+  - name: Avery Lee
+    role: Technical Recruiter
+events:
+  - type: applied
+    occurred_at: 2026-05-01
+    summary: Submitted tailored resume.
+  - type: recruiter_screen
+    occurred_at: 2026-05-04
+    summary: Discussed platform ownership, Kubernetes, and incident response.
+next_action:
+  due: 2026-05-07
+  summary: Prep system design notes.
