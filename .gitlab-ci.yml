@@ -75,7 +75,7 @@ docker:publish:
     - docker push "${JOBHUNT_OS_IMAGE_COMMIT}"
     - docker push "${JOBHUNT_OS_IMAGE_LATEST}"
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_REGISTRY && $CI_REGISTRY_USER && $CI_REGISTRY_PASSWORD
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 deploy:prepare-vars:
   stage: deploy
