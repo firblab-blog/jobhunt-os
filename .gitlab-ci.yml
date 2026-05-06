@@ -77,15 +77,32 @@ docker:publish:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
+deploy:prepare-vars:
+  stage: deploy
+  image: alpine:3.20
+  needs:
+    - job: docker:publish
+  before_script: []
+  script:
+    - printf 'UPSTREAM_JOBHUNT_OS_IMAGE=%s\n' "${JOBHUNT_OS_IMAGE_COMMIT}" > deploy.env
+  artifacts:
+    reports:
+      dotenv: deploy.env
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $JOBHUNT_OS_AUTO_DEPLOY == "true"
+
 deploy:firblab-v2:
   stage: deploy
+  needs:
+    - job: deploy:prepare-vars
+      artifacts: true
   trigger:
     project: "${FIRBLAB_V2_PROJECT_PATH}"
     branch: "${FIRBLAB_V2_DEPLOY_REF}"
     strategy: depend
   variables:
     DEPLOY_TARGET: "jobhunt-os"
-    JOBHUNT_OS_IMAGE: "${JOBHUNT_OS_IMAGE_COMMIT}"
+    JOBHUNT_OS_IMAGE: "${UPSTREAM_JOBHUNT_OS_IMAGE}"
     JOBHUNT_OS_REGISTRY_SERVER: "${JOBHUNT_OS_REGISTRY_SERVER}"
     JOBHUNT_OS_REGISTRY_INSECURE: "${JOBHUNT_OS_REGISTRY_INSECURE}"
     JOBHUNT_OS_REGISTRY_HOSTNAME: "${JOBHUNT_OS_REGISTRY_HOSTNAME}"
