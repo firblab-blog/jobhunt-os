@@ -8,11 +8,17 @@ This repository is starting intentionally small:
 - Standard library only at scaffold time
 - Local data storage planned around SQLite
 - Manual-first workflows before any automation
-- Synthetic fixtures only; real job hunt history stays private
+- Synthetic fixtures only; no real personal data belongs in this repository
 
 ## Current Status
 
 This is a clean rebuild. The older `firblab-job-hunt` repository is treated as historical data and product research, not as the codebase to carry forward.
+
+## Public Readiness
+
+- License: MIT; see [LICENSE](LICENSE).
+- Data hygiene: do not commit real resumes, cover letters, applications, recruiter messages, correspondence, or other personal job hunt data. Public fixtures should be synthetic and named `sample-*.yaml`.
+- Module path: `github.com/firblab-blog/jobhunt-os`.
 
 ## Run
 
@@ -53,4 +59,4 @@ The project defaults to a boring, reviewable dependency posture. Any dependency 
 
 ## License
 
-License is not selected yet. Pick one before publishing a public mirror.
+JobHunt OS is available under the MIT License; see [LICENSE](LICENSE).

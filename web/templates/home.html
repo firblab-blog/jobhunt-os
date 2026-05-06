@@ -14,9 +14,11 @@
       </div>
       <nav aria-label="Primary">
         <a href="/">Dashboard</a>
-        <a href="/">Applications</a>
-        <a href="/">Documents</a>
-        <a href="/">Follow-ups</a>
+        <a href="/applications">Applications</a>
+        <a href="/documents">Documents</a>
+        <a href="/contacts">Contacts</a>
+        <a href="/follow-ups">Follow-ups</a>
+        <a href="/backup">Backup</a>
       </nav>
     </header>
 
@@ -37,7 +39,7 @@
               <p class="eyebrow">Application pipeline</p>
               <h2>Current focus</h2>
             </div>
-            <button type="button">New application</button>
+            <a class="button" href="/applications/new">New application</a>
           </div>
 
           <table>
@@ -53,9 +55,9 @@
             <tbody>
               {{ range .Applications }}
               <tr>
-                <td>{{ .Company }}</td>
+                <td>{{ if .ID }}<a class="table-link" href="/applications/{{ .ID }}">{{ .Company }}</a>{{ else }}{{ .Company }}{{ end }}</td>
                 <td>{{ .Role }}</td>
-                <td><span class="status">{{ .Status }}</span></td>
+                <td><span class="status" data-status="{{ .StatusKey }}">{{ .Status }}</span></td>
                 <td>{{ .NextAction }}</td>
                 <td>{{ .Updated }}</td>
               </tr>
@@ -67,11 +69,15 @@
         <aside class="side-panel">
           <p class="eyebrow">Today</p>
           <h2>Next actions</h2>
+          {{ if .NextActions }}
           <ul>
-            <li>Prep system design notes for Northstar Systems.</li>
-            <li>Send recruiter follow-up for Atlas Cloud.</li>
-            <li>Attach tailored cover letter to Signal Works draft.</li>
+            {{ range .NextActions }}
+            <li>{{ .Text }}</li>
+            {{ end }}
           </ul>
+          {{ else }}
+          <p class="empty-state">No next actions queued.</p>
+          {{ end }}
         </aside>
       </section>
     </main>

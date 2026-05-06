@@ -19,6 +19,7 @@ Before adding a dependency, record:
 - Use synthetic fixtures in the public repository.
 - Treat legacy data as private input for import testing unless explicitly redacted.
 - Bind the server to `127.0.0.1` by default.
+- Enable SQLite foreign key enforcement with `PRAGMA foreign_keys = ON` for every future database connection before running application queries.
 
 ## Future Hardening Checklist
 

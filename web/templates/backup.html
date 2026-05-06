@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Backup - JobHunt OS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Portability</p>
+        <h1>Backup</h1>
+      </div>
+      <nav aria-label="Primary">
+        <a href="/">Dashboard</a>
+        <a href="/applications">Applications</a>
+        <a href="/documents">Documents</a>
+        <a href="/contacts">Contacts</a>
+        <a href="/follow-ups">Follow-ups</a>
+        <a href="/backup">Backup</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Export</p>
+            <h2>Portable JSON snapshot</h2>
+          </div>
+          <a class="button" href="/export.json">Download JSON</a>
+        </div>
+
+        <div class="detail-body">
+          <p>The JSON export includes applications, timeline events, document records, and contacts. The SQLite database remains in the configured local data directory.</p>
+          <p class="meta-line">Page generated {{ .GeneratedAt }}</p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

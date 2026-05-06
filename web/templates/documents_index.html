@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Documents - JobHunt OS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Document library</p>
+        <h1>Documents</h1>
+      </div>
+      <nav aria-label="Primary">
+        <a href="/">Dashboard</a>
+        <a href="/applications">Applications</a>
+        <a href="/documents">Documents</a>
+        <a href="/contacts">Contacts</a>
+        <a href="/follow-ups">Follow-ups</a>
+        <a href="/backup">Backup</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="workspace">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Saved references</p>
+              <h2>Resume, cover letter, and portfolio records</h2>
+            </div>
+          </div>
+
+          {{ if .Documents }}
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>File path or reference</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{ range .Documents }}
+              <tr>
+                <td>{{ .Name }}</td>
+                <td>{{ .TypeLabel }}</td>
+                <td>
+                  <span>{{ .StoragePath }}</span>
+                  {{ if .Notes }}<small>{{ .Notes }}</small>{{ end }}
+                </td>
+                <td>{{ .Updated }}</td>
+              </tr>
+              {{ end }}
+            </tbody>
+          </table>
+          {{ else }}
+          <div class="empty-panel">
+            <h2>No documents recorded yet</h2>
+            <p>Add the resumes, cover letters, portfolios, and work samples you want to track during the hunt.</p>
+          </div>
+          {{ end }}
+        </div>
+
+        <aside class="side-panel">
+          <form class="detail-form" method="post" action="/documents" novalidate>
+            {{ .CSRFToken }}
+            <p class="eyebrow">Add document</p>
+            <h2>Record a local reference</h2>
+
+            {{ with .Errors.Get "form" }}
+            <div class="form-alert" role="alert">{{ . }}</div>
+            {{ end }}
+
+            <label>
+              <span>Name</span>
+              <input name="name" value="{{ .Values.Name }}" required aria-describedby="document-name-error">
+              {{ with .Errors.Get "name" }}<strong id="document-name-error">{{ . }}</strong>{{ end }}
+            </label>
+
+            <label>
+              <span>Type</span>
+              <select name="document_type" required aria-describedby="document-type-error">
+                {{ range .TypeOptions }}
+                <option value="{{ .Value }}" {{ if eq $.Values.Type .Value }}selected{{ end }}>{{ .Label }}</option>
+                {{ end }}
+              </select>
+              {{ with .Errors.Get "document_type" }}<strong id="document-type-error">{{ . }}</strong>{{ end }}
+            </label>
+
+            <label>
+              <span>File path or reference</span>
+              <input name="storage_path" value="{{ .Values.StoragePath }}" required aria-describedby="storage-path-error">
+              {{ with .Errors.Get "storage_path" }}<strong id="storage-path-error">{{ . }}</strong>{{ end }}
+            </label>
+
+            <label>
+              <span>Notes</span>
+              <textarea name="notes" rows="5">{{ .Values.Notes }}</textarea>
+            </label>
+
+            <button type="submit">Save document</button>
+          </form>
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>

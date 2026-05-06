@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Contacts - JobHunt OS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Network</p>
+        <h1>Contacts</h1>
+      </div>
+      <nav aria-label="Primary">
+        <a href="/">Dashboard</a>
+        <a href="/applications">Applications</a>
+        <a href="/documents">Documents</a>
+        <a href="/contacts">Contacts</a>
+        <a href="/follow-ups">Follow-ups</a>
+        <a href="/backup">Backup</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="workspace">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">People</p>
+              <h2>Recruiters, referrals, and interviewers</h2>
+            </div>
+          </div>
+
+          {{ if .Contacts }}
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Organization</th>
+                <th>Role</th>
+                <th>Contact</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{ range .Contacts }}
+              <tr>
+                <td>{{ .Name }}</td>
+                <td>{{ if .Organization }}{{ .Organization }}{{ else }}<span class="muted">Not set</span>{{ end }}</td>
+                <td>{{ if .Role }}{{ .Role }}{{ else }}<span class="muted">Not set</span>{{ end }}</td>
+                <td>
+                  {{ if .Email }}<span>{{ .Email }}</span>{{ end }}
+                  {{ if .Phone }}<small>{{ .Phone }}</small>{{ end }}
+                  {{ if and (not .Email) (not .Phone) }}<span class="muted">Not set</span>{{ end }}
+                </td>
+                <td>{{ .Updated }}</td>
+              </tr>
+              {{ end }}
+            </tbody>
+          </table>
+          {{ else }}
+          <div class="empty-panel">
+            <h2>No contacts recorded yet</h2>
+            <p>Add recruiters, referrals, hiring managers, and interviewers as they show up in your process.</p>
+          </div>
+          {{ end }}
+        </div>
+
+        <aside class="side-panel">
+          <form class="detail-form" method="post" action="/contacts" novalidate>
+            {{ .CSRFToken }}
+            <p class="eyebrow">Add contact</p>
+            <h2>Save a person</h2>
+
+            {{ with .Errors.Get "form" }}
+            <div class="form-alert" role="alert">{{ . }}</div>
+            {{ end }}
+
+            <label>
+              <span>Name</span>
+              <input name="name" value="{{ .Values.Name }}" autocomplete="name" required aria-describedby="contact-name-error">
+              {{ with .Errors.Get "name" }}<strong id="contact-name-error">{{ . }}</strong>{{ end }}
+            </label>
+
+            <label>
+              <span>Organization</span>
+              <input name="organization" value="{{ .Values.Organization }}" autocomplete="organization">
+            </label>
+
+            <label>
+              <span>Role</span>
+              <input name="role" value="{{ .Values.Role }}" autocomplete="organization-title">
+            </label>
+
+            <label>
+              <span>Email</span>
+              <input name="email" type="email" value="{{ .Values.Email }}" autocomplete="email">
+            </label>
+
+            <label>
+              <span>Phone</span>
+              <input name="phone" value="{{ .Values.Phone }}" autocomplete="tel">
+            </label>
+
+            <label>
+              <span>Location</span>
+              <input name="location" value="{{ .Values.Location }}" autocomplete="address-level2">
+            </label>
+
+            <label>
+              <span>Notes</span>
+              <textarea name="notes" rows="5">{{ .Values.Notes }}</textarea>
+            </label>
+
+            <button type="submit">Save contact</button>
+          </form>
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>

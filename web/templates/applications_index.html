@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Applications - JobHunt OS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Application pipeline</p>
+        <h1>Applications</h1>
+      </div>
+      <nav aria-label="Primary">
+        <a href="/">Dashboard</a>
+        <a href="/applications">Applications</a>
+        <a href="/documents">Documents</a>
+        <a href="/contacts">Contacts</a>
+        <a href="/follow-ups">Follow-ups</a>
+        <a href="/backup">Backup</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Tracked opportunities</p>
+            <h2>Current applications</h2>
+          </div>
+          <a class="button" href="/applications/new">New application</a>
+        </div>
+
+        <form class="filter-form" method="get" action="/applications">
+          <label>
+            <span>Search</span>
+            <input name="q" value="{{ .Query }}" autocomplete="off">
+          </label>
+          <label>
+            <span>Status</span>
+            <select name="status">
+              <option value="" {{ if eq .Status "" }}selected{{ end }}>All statuses</option>
+              {{ range .StatusOptions }}
+              <option value="{{ .Value }}" {{ if eq $.Status .Value }}selected{{ end }}>{{ .Label }}</option>
+              {{ end }}
+            </select>
+          </label>
+          <button type="submit">Filter</button>
+        </form>
+
+        {{ if .Applications }}
+        <table>
+          <thead>
+            <tr>
+              <th>Company</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Next action</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range .Applications }}
+            <tr>
+              <td><a class="table-link" href="/applications/{{ .ID }}">{{ .Company }}</a></td>
+              <td>{{ .Role }}</td>
+              <td><span class="status" data-status="{{ .Status }}">{{ .StatusLabel }}</span></td>
+              <td>{{ .PriorityLabel }}</td>
+              <td>
+                {{ if .NextAction.Summary }}
+                <span>{{ .NextAction.Summary }}</span>
+                {{ if .NextActionDue }}<small>Due {{ .NextActionDue }}</small>{{ end }}
+                {{ else }}
+                <span class="muted">None</span>
+                {{ end }}
+              </td>
+              <td>{{ .Updated }}</td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+        {{ else }}
+        <div class="empty-panel">
+          <h2>No applications yet</h2>
+          <p>No applications match the current view. Add the first opportunity or clear the filters.</p>
+          <a class="button" href="/applications/new">New application</a>
+        </div>
+        {{ end }}
+      </section>
+    </main>
+  </body>
+</html>

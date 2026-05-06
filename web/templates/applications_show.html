@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ .Application.Company }} - JobHunt OS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Application detail</p>
+        <h1>{{ .Application.Company }}</h1>
+      </div>
+      <nav aria-label="Primary">
+        <a href="/">Dashboard</a>
+        <a href="/applications">Applications</a>
+        <a href="/documents">Documents</a>
+        <a href="/contacts">Contacts</a>
+        <a href="/follow-ups">Follow-ups</a>
+        <a href="/backup">Backup</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="detail-header">
+        <div>
+          <p class="eyebrow">Role</p>
+          <h2>{{ .Application.Role }}</h2>
+        </div>
+        <span class="status" data-status="{{ .Application.Status }}">{{ .StatusLabel }}</span>
+      </section>
+
+      <section class="detail-grid">
+        <article>
+          <span>Priority</span>
+          <strong>{{ .Priority }}</strong>
+        </article>
+        <article>
+          <span>Source</span>
+          <strong>{{ if .Application.Source }}{{ .Application.Source }}{{ else }}Not set{{ end }}</strong>
+        </article>
+        <article>
+          <span>Location</span>
+          <strong>{{ if .Application.Location }}{{ .Application.Location }}{{ else }}Not set{{ end }}</strong>
+        </article>
+        <article>
+          <span>Updated</span>
+          <strong>{{ .Updated }}</strong>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Timeline</p>
+              <h2>Events and notes</h2>
+            </div>
+          </div>
+
+          {{ if .Events }}
+          <div class="timeline">
+            {{ range .Events }}
+            <article class="timeline-item">
+              <div>
+                <span class="timeline-type">{{ .EventTypeLabel }}</span>
+                <h3>{{ .Summary }}</h3>
+                {{ if .Notes }}<p>{{ .Notes }}</p>{{ end }}
+              </div>
+              <time datetime="{{ .OccurredAt.Format "2006-01-02" }}">{{ .Occurred }}</time>
+            </article>
+            {{ end }}
+          </div>
+          {{ else }}
+          <div class="empty-panel">
+            <p class="empty-state">No timeline events yet.</p>
+          </div>
+          {{ end }}
+        </article>
+
+        <aside class="side-stack">
+          <form class="side-panel detail-form" method="post" action="/applications/{{ .Application.ID }}/events" novalidate>
+            {{ .CSRFToken }}
+            <p class="eyebrow">Add event</p>
+            <h2>Record note</h2>
+
+            {{ with .EventForm.Errors.Get "form" }}
+            <div class="form-alert" role="alert">{{ . }}</div>
+            {{ end }}
+
+            <label>
+              <span>Type</span>
+              <select name="event_type" required aria-describedby="event-type-error">
+                {{ range .EventTypeOptions }}
+                <option value="{{ .Value }}" {{ if eq $.EventForm.Values.EventType .Value }}selected{{ end }}>{{ .Label }}</option>
+                {{ end }}
+              </select>
+              {{ with .EventForm.Errors.Get "event_type" }}<strong id="event-type-error">{{ . }}</strong>{{ end }}
+            </label>
+
+            <label>
+              <span>Occurred date</span>
+              <input name="occurred_at" type="date" value="{{ .EventForm.Values.OccurredAt }}" required aria-describedby="occurred-at-error">
+              {{ with .EventForm.Errors.Get "occurred_at" }}<strong id="occurred-at-error">{{ . }}</strong>{{ end }}
+            </label>
+
+            <label>
+              <span>Summary</span>
+              <input name="summary" value="{{ .EventForm.Values.Summary }}" required aria-describedby="summary-error">
+              {{ with .EventForm.Errors.Get "summary" }}<strong id="summary-error">{{ . }}</strong>{{ end }}
+            </label>
+
+            <label>
+              <span>Notes</span>
+              <textarea name="notes" rows="4">{{ .EventForm.Values.Notes }}</textarea>
+            </label>
+
+            <button type="submit">Add event</button>
+          </form>
+
+          <form class="side-panel detail-form" method="post" action="/applications/{{ .Application.ID }}/status" novalidate>
+            {{ .CSRFToken }}
+            <p class="eyebrow">Status</p>
+            <h2>Update next action</h2>
+            {{ if .Application.NextAction.Summary }}
+            <p class="muted">{{ .Application.NextAction.Summary }}{{ if .NextActionDue }} - Due {{ .NextActionDue }}{{ end }}</p>
+            {{ else }}
+            <p class="empty-state">No next action recorded.</p>
+            {{ end }}
+
+            {{ with .StatusForm.Errors.Get "form" }}
+            <div class="form-alert" role="alert">{{ . }}</div>
+            {{ end }}
+
+            <label>
+              <span>Status</span>
+              <select name="status" required aria-describedby="status-error">
+                {{ range .StatusOptions }}
+                <option value="{{ .Value }}" {{ if eq $.StatusForm.Values.Status .Value }}selected{{ end }}>{{ .Label }}</option>
+                {{ end }}
+              </select>
+              {{ with .StatusForm.Errors.Get "status" }}<strong id="status-error">{{ . }}</strong>{{ end }}
+            </label>
+
+            <label>
+              <span>Next action summary</span>
+              <input name="next_action_summary" value="{{ .StatusForm.Values.NextActionSummary }}">
+            </label>
+
+            <label>
+              <span>Next action due</span>
+              <input name="next_action_due" type="date" value="{{ .StatusForm.Values.NextActionDue }}" aria-describedby="next-action-due-error">
+              {{ with .StatusForm.Errors.Get "next_action_due" }}<strong id="next-action-due-error">{{ . }}</strong>{{ end }}
+            </label>
+
+            <button type="submit">Update status</button>
+          </form>
+
+          <section class="side-panel">
+            <p class="eyebrow">Notes</p>
+            <h2>Private notes</h2>
+            {{ if .Application.Notes }}
+            <p class="notes">{{ .Application.Notes }}</p>
+            {{ else }}
+            <p class="empty-state">No notes recorded.</p>
+            {{ end }}
+          </section>
+        </aside>
+      </section>
+
+      <p class="meta-line">Created {{ .Created }}</p>
+    </main>
+  </body>
+</html>

@@ -32,11 +32,16 @@ flowchart LR
 
 ## Data Domains
 
-- Applications: company, role, source, status, priority, compensation, remote policy, links, contacts, tags.
+- Applications: company, role, source, status, priority, typed compensation, location, notes, and next action.
+- Contacts: recruiters, hiring managers, interviewers, referrers, and other people connected to one or more applications.
 - Documents: resumes, cover letters, snippets, work samples, versions, and application attachments.
 - Correspondence: dated notes for emails, calls, messages, recruiter updates, and hiring-team feedback.
-- Events: interviews, take-home assignments, deadlines, follow-ups, and decisions.
+- Events: interviews, take-home assignments, deadlines, follow-ups, decisions, and contact-linked timeline entries.
 - Outcomes: accepted, declined, rejected, withdrawn, archived, and lessons learned.
+
+## Persistence Notes
+
+The initial migration is the source of truth until real data exists. SQLite foreign key enforcement is connection-local, so the future store must enable `PRAGMA foreign_keys = ON` immediately after opening each database connection.
 
 ## Security Boundaries
 

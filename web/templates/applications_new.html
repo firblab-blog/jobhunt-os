@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>New Application - JobHunt OS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Application pipeline</p>
+        <h1>New application</h1>
+      </div>
+      <nav aria-label="Primary">
+        <a href="/">Dashboard</a>
+        <a href="/applications">Applications</a>
+        <a href="/documents">Documents</a>
+        <a href="/contacts">Contacts</a>
+        <a href="/follow-ups">Follow-ups</a>
+        <a href="/backup">Backup</a>
+      </nav>
+    </header>
+
+    <main>
+      <form class="form-panel" method="post" action="/applications" novalidate>
+        {{ .CSRFToken }}
+
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Opportunity details</p>
+            <h2>Track a role</h2>
+          </div>
+          <button type="submit">Create application</button>
+        </div>
+
+        {{ with .Errors.Get "form" }}
+        <div class="form-alert" role="alert">{{ . }}</div>
+        {{ end }}
+
+        <div class="form-grid">
+          <label>
+            <span>Company</span>
+            <input name="company" value="{{ .Values.Company }}" autocomplete="organization" required aria-describedby="company-error">
+            {{ with .Errors.Get "company" }}<strong id="company-error">{{ . }}</strong>{{ end }}
+          </label>
+
+          <label>
+            <span>Role</span>
+            <input name="role" value="{{ .Values.Role }}" autocomplete="organization-title" required aria-describedby="role-error">
+            {{ with .Errors.Get "role" }}<strong id="role-error">{{ . }}</strong>{{ end }}
+          </label>
+
+          <label>
+            <span>Status</span>
+            <select name="status" required aria-describedby="status-error">
+              {{ range .StatusOptions }}
+              <option value="{{ .Value }}" {{ if eq $.Values.Status .Value }}selected{{ end }}>{{ .Label }}</option>
+              {{ end }}
+            </select>
+            {{ with .Errors.Get "status" }}<strong id="status-error">{{ . }}</strong>{{ end }}
+          </label>
+
+          <label>
+            <span>Priority</span>
+            <select name="priority" required aria-describedby="priority-error">
+              {{ range .PriorityOptions }}
+              <option value="{{ .Value }}" {{ if eq $.Values.Priority .Value }}selected{{ end }}>{{ .Label }}</option>
+              {{ end }}
+            </select>
+            {{ with .Errors.Get "priority" }}<strong id="priority-error">{{ . }}</strong>{{ end }}
+          </label>
+
+          <label>
+            <span>Source</span>
+            <input name="source" value="{{ .Values.Source }}" autocomplete="off">
+          </label>
+
+          <label>
+            <span>Location</span>
+            <input name="location" value="{{ .Values.Location }}" autocomplete="address-level2">
+          </label>
+
+          <label>
+            <span>Next action summary</span>
+            <input name="next_action_summary" value="{{ .Values.NextActionSummary }}" autocomplete="off">
+          </label>
+
+          <label>
+            <span>Next action due</span>
+            <input name="next_action_due" type="date" value="{{ .Values.NextActionDue }}" aria-describedby="next-action-due-error">
+            {{ with .Errors.Get "next_action_due" }}<strong id="next-action-due-error">{{ . }}</strong>{{ end }}
+          </label>
+
+          <label class="full-span">
+            <span>Notes</span>
+            <textarea name="notes" rows="6">{{ .Values.Notes }}</textarea>
+          </label>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

@@ -1,8 +1,76 @@
 stages:
-  - test
+  - validate
+  - scan
+  - mirror
+
+include:
+  - project: "infrastructure/ci-templates"
+    ref: main
+    file: sonarqube-ci.yml
+
+default:
+  image: golang:1.26
+  tags:
+    - docker
+
+.jobhunt-rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 go:test:
-  stage: test
-  image: golang:1.26
+  stage: validate
+  # TODO: Pin this official Go image to a digest after validating it from Docker Hub.
+  extends: .jobhunt-rules
   script:
-    - go test ./...
+    - go mod verify
+    - go vet ./...
+    - mkdir -p coverage
+    - go test -race -coverprofile=coverage/coverage.out ./...
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - coverage/coverage.out
+
+sonarqube:analyze:
+  stage: scan
+  extends: .sonarqube-analysis
+  needs:
+    - job: go:test
+  before_script: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $SONAR_HOST_URL && $SONAR_TOKEN
+      variables:
+        SONAR_SCANNER_OPTS: >-
+          -Dsonar.pullrequest.provider=gitlab
+          -Dsonar.pullrequest.gitlab.repositorySlug=${CI_PROJECT_NAMESPACE}/${CI_PROJECT_NAME}
+          -Dsonar.pullrequest.key=${CI_MERGE_REQUEST_IID}
+          -Dsonar.pullrequest.branch=${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}
+          -Dsonar.pullrequest.base=${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $SONAR_HOST_URL && $SONAR_TOKEN
+
+mirror:github:
+  stage: mirror
+  image: alpine:3.20
+  needs:
+    - job: go:test
+    - job: sonarqube:analyze
+      optional: true
+  before_script: []
+  variables:
+    GIT_DEPTH: 0
+    GIT_STRATEGY: clone
+  script:
+    - |
+      set -e
+      apk add --no-cache git
+
+      git config user.email "ci@firblab.org"
+      git config user.name "firblab-ci"
+
+      MIRROR_URL=$(echo "${GITHUB_MIRROR_REPO}" | sed "s|https://|https://x-access-token:${GITHUB_MIRROR_TOKEN}@|")
+      git push --force "${MIRROR_URL}.git" HEAD:refs/heads/main
+      echo "Mirror push to GitHub complete."
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GITHUB_MIRROR_TOKEN && $GITHUB_MIRROR_REPO

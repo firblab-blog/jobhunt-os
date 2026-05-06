@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Follow-ups - JobHunt OS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Next actions</p>
+        <h1>Follow-ups</h1>
+      </div>
+      <nav aria-label="Primary">
+        <a href="/">Dashboard</a>
+        <a href="/applications">Applications</a>
+        <a href="/documents">Documents</a>
+        <a href="/contacts">Contacts</a>
+        <a href="/follow-ups">Follow-ups</a>
+        <a href="/backup">Backup</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Queued work</p>
+            <h2>Application next actions</h2>
+          </div>
+          <a class="button" href="/applications">Applications</a>
+        </div>
+
+        {{ if .Items }}
+        <table>
+          <thead>
+            <tr>
+              <th>Application</th>
+              <th>Status</th>
+              <th>Next action</th>
+              <th>Due</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range .Items }}
+            <tr>
+              <td>
+                <a class="table-link" href="/applications/{{ .ID }}">{{ .Company }}</a>
+                <small>{{ .Role }}</small>
+              </td>
+              <td><span class="status" data-status="{{ .Status }}">{{ .StatusLabel }}</span></td>
+              <td>{{ .Summary }}</td>
+              <td>{{ if .Due }}{{ .Due }}{{ else }}<span class="muted">Unscheduled</span>{{ end }}</td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+        {{ else }}
+        <div class="empty-panel">
+          <h2>No follow-ups queued</h2>
+          <p>Add next actions on application detail pages to make them appear here.</p>
+        </div>
+        {{ end }}
+      </section>
+    </main>
+  </body>
+</html>

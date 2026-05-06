@@ -1,6 +1,6 @@
 # 0001: SQLite Driver Decision
 
-Status: proposed
+Status: accepted
 
 ## Context
 
@@ -25,8 +25,10 @@ JobHunt OS should use SQLite for local storage because it is portable, durable, 
 - Keeps Go web code simple while using Rust storage tooling.
 - Adds architecture complexity too early.
 
-## Lean Recommendation
+## Decision
 
-Start with explicit repository interfaces and migration files, but do not add a SQLite driver until the first persistent workflow is ready. When persistence starts, prefer `modernc.org/sqlite` for portability unless its dependency graph feels too large after review.
+Start with explicit repository interfaces and migration files, but do not add a SQLite driver until the first persistent workflow is ready. When persistence starts, the intended first driver is `modernc.org/sqlite`.
 
-Whichever driver is selected, keep SQL explicit and avoid an ORM.
+The portability tradeoff is intentional: pure Go and no CGO should make local builds and cross-platform releases simpler, especially for machines without native compiler toolchains. The cost is a larger Go dependency graph, which must be reviewed before the dependency is added.
+
+Keep SQL explicit and avoid an ORM. The first store implementation must enable `PRAGMA foreign_keys = ON` on every opened SQLite connection before it runs migrations or application queries, because SQLite leaves foreign key enforcement off by default.

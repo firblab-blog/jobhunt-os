@@ -9,11 +9,11 @@
 
 ## Phase 1: Manual Tracker
 
-- Application CRUD.
-- Status and timeline model.
-- Contacts and correspondence notes.
-- Follow-up reminders inside the UI.
-- Document inventory and application attachments.
+- Application CRUD on the initial SQLite schema.
+- Status and timeline model with constrained status/event vocabularies.
+- Contacts and correspondence notes linked to applications and timeline entries.
+- Follow-up reminders inside the UI using application-level next-action fields.
+- Document inventory and application attachments through join records.
 - CSV and JSON export.
 
 ## Phase 2: Durable Local Storage
