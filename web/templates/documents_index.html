@@ -45,7 +45,7 @@
               </div>
               <div class="support-card-meta">
                 <span>Updated {{ .Updated }}</span>
-                {{ if .DownloadURL }}<a class="table-link" href="{{ .DownloadURL }}">Open PDF</a>{{ else }}<span class="muted">{{ .ReferenceLabel }}</span>{{ end }}
+                {{ if .ViewURL }}<a class="table-link" href="{{ .ViewURL }}">Open PDF</a>{{ else }}<span class="muted">{{ .ReferenceLabel }}</span>{{ end }}
               </div>
             </article>
             {{ end }}

@@ -226,7 +226,7 @@
                   <strong>{{ .Document.Name }}</strong>
                   {{ if .Document.Notes }}<small>{{ .Document.Notes }}</small>{{ end }}
                 </div>
-                <a class="table-link" href="/documents/{{ .Document.ID }}/download">Open PDF</a>
+                {{ if .ViewURL }}<a class="table-link" href="{{ .ViewURL }}">Open PDF</a>{{ end }}
               </article>
               {{ end }}
             </div>

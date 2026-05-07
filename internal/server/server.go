@@ -169,6 +169,7 @@ type applicationDocumentItem struct {
 	model.ApplicationDocument
 	TypeLabel string
 	Updated   string
+	ViewURL   string
 }
 
 type selectOption struct {
@@ -188,8 +189,15 @@ type documentItem struct {
 	model.Document
 	TypeLabel      string
 	Updated        string
-	DownloadURL    string
+	ViewURL        string
 	ReferenceLabel string
+}
+
+type documentShowData struct {
+	Document    model.Document
+	TypeLabel   string
+	Updated     string
+	DownloadURL string
 }
 
 type documentFormValues struct {
@@ -282,6 +290,7 @@ func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler 
 	s.mux.HandleFunc("GET /applications/{id}", s.applicationsShow)
 	s.mux.HandleFunc("GET /documents", s.documentsIndex)
 	s.mux.HandleFunc("POST /documents", s.documentsCreate)
+	s.mux.HandleFunc("GET /documents/{id}", s.documentsShow)
 	s.mux.HandleFunc("GET /documents/{id}/download", s.documentsDownload)
 	s.mux.HandleFunc("GET /contacts", s.contactsIndex)
 	s.mux.HandleFunc("POST /contacts", s.contactsCreate)
@@ -728,6 +737,34 @@ func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 	s.renderDocumentsIndex(w, r, documents, values, form.errors, http.StatusUnprocessableEntity)
 }
 
+func (s *Server) documentsShow(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		serverError(w, r, errors.New("application store is not configured"))
+		return
+	}
+
+	document, err := s.store.GetDocument(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		serverError(w, r, err)
+		return
+	}
+	if documentDownloadURL(document) == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	s.renderWithStatus(w, r, "documents_show.html", documentShowData{
+		Document:    document,
+		TypeLabel:   documentTypeLabel(document.Type),
+		Updated:     longDate(document.UpdatedAt),
+		DownloadURL: documentDownloadURL(document),
+	}, http.StatusOK)
+}
+
 func (s *Server) documentsDownload(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
 		serverError(w, r, errors.New("application store is not configured"))
@@ -756,6 +793,8 @@ func (s *Server) documentsDownload(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", `inline; filename="`+downloadFileName(document.Name)+`.pdf"`)
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'")
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 	http.ServeFile(w, r, path)
 }
 
@@ -1169,6 +1208,7 @@ func (s *Server) renderApplicationDetail(w http.ResponseWriter, r *http.Request,
 			ApplicationDocument: document,
 			TypeLabel:           documentTypeLabel(document.Document.Type),
 			Updated:             shortDate(document.Document.UpdatedAt),
+			ViewURL:             documentViewURL(document.Document),
 		})
 	}
 
@@ -1203,7 +1243,7 @@ func (s *Server) renderDocumentsIndex(w http.ResponseWriter, r *http.Request, do
 			Document:       document,
 			TypeLabel:      documentTypeLabel(document.Type),
 			Updated:        shortDate(document.UpdatedAt),
-			DownloadURL:    documentDownloadURL(document),
+			ViewURL:        documentViewURL(document),
 			ReferenceLabel: documentReferenceLabel(document),
 		})
 	}
@@ -1770,6 +1810,13 @@ func documentTypeLabel(documentType model.DocumentType) string {
 func documentDownloadURL(document model.Document) string {
 	if strings.HasPrefix(filepath.ToSlash(document.StoragePath), "documents/") {
 		return "/documents/" + document.ID + "/download"
+	}
+	return ""
+}
+
+func documentViewURL(document model.Document) string {
+	if documentDownloadURL(document) != "" {
+		return "/documents/" + document.ID
 	}
 	return ""
 }

@@ -483,7 +483,7 @@ func TestApplicationsShowRendersPostingLinkAndDocuments(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		`href="https://jobs.example.com/platform"`,
-		`href="/documents/doc_1/download"`,
+		`href="/documents/doc_1"`,
 		"Northstar posting",
 		"Job posting",
 	} {
@@ -492,6 +492,39 @@ func TestApplicationsShowRendersPostingLinkAndDocuments(t *testing.T) {
 		}
 	}
 	if strings.Contains(body, "documents/app_1/doc_1.pdf") {
+		t.Fatalf("body exposed raw storage path")
+	}
+}
+
+func TestDocumentsShowEmbedsInlinePDF(t *testing.T) {
+	t.Parallel()
+
+	document := model.Document{
+		ID:          "doc_1",
+		Name:        "Platform resume",
+		Type:        model.DocumentResume,
+		StoragePath: "documents/library/doc_1.pdf",
+		UpdatedAt:   time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC),
+	}
+	rec := requestWithStore(http.MethodGet, "/documents/doc_1", nil, &fakeApplicationStore{
+		documents: []model.Document{document},
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"Document preview",
+		`src="/documents/doc_1/download"`,
+		`href="/documents/doc_1/download"`,
+		"Platform resume",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body does not contain %q", want)
+		}
+	}
+	if strings.Contains(body, "documents/library/doc_1.pdf") {
 		t.Fatalf("body exposed raw storage path")
 	}
 }

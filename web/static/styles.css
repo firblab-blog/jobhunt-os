@@ -447,35 +447,52 @@ button.secondary:hover {
 }
 
 .applications-table th:nth-child(1) {
-  width: 22%;
-}
-
-.applications-table th:nth-child(2) {
-  width: 20%;
-}
-
-.applications-table th:nth-child(3) {
-  width: 12%;
-}
-
-.applications-table th:nth-child(4) {
-  width: 10%;
-}
-
-.applications-table th:nth-child(5) {
   width: 21%;
 }
 
-.applications-table th:nth-child(6) {
+.applications-table th:nth-child(2) {
+  width: 17%;
+}
+
+.applications-table th:nth-child(3) {
+  width: 10%;
+}
+
+.applications-table th:nth-child(4) {
   width: 9%;
 }
 
+.applications-table th:nth-child(5) {
+  width: 23%;
+}
+
+.applications-table th:nth-child(6) {
+  width: 10%;
+}
+
 .applications-table th:nth-child(7) {
-  width: 6%;
+  width: 10%;
 }
 
 .applications-table td {
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.applications-table th,
+.applications-table td {
+  padding-inline: 14px;
+}
+
+.applications-table th:nth-child(3),
+.applications-table th:nth-child(4),
+.applications-table th:nth-child(6),
+.applications-table th:nth-child(7),
+.applications-table td:nth-child(3),
+.applications-table td:nth-child(4),
+.applications-table td:nth-child(6),
+.applications-table td:nth-child(7) {
+  white-space: nowrap;
 }
 
 .applications-company-link {
@@ -493,6 +510,8 @@ button.secondary:hover {
 .applications-role-cell,
 .applications-next-cell {
   line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .applications-priority {
@@ -519,6 +538,28 @@ button.secondary:hover {
 .applications-priority[data-priority="low"] {
   background: #f3f4f6;
   color: #4b5563;
+}
+
+.document-viewer-panel {
+  overflow: hidden;
+}
+
+.document-viewer-header {
+  align-items: center;
+}
+
+.document-viewer-meta {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.document-preview {
+  display: block;
+  width: 100%;
+  min-height: min(78vh, 920px);
+  border: 0;
+  background: #2b2c31;
 }
 
 table {
@@ -1838,6 +1879,7 @@ label strong {
     border-bottom: 0;
     padding: 6px 0;
     min-width: 0;
+    white-space: normal;
   }
 
   .applications-table td::before {

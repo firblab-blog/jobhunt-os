@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ .Document.Name }} - JobHunt OS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Document preview</p>
+        <h1>{{ .Document.Name }}</h1>
+      </div>
+      <nav aria-label="Primary">
+        <a href="/">Dashboard</a>
+        <a href="/applications">Applications</a>
+        <a href="/documents" aria-current="page">Documents</a>
+        <a href="/contacts">Contacts</a>
+        <a href="/follow-ups">Follow-ups</a>
+        <a href="/backup">Backup</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="panel document-viewer-panel">
+        <div class="panel-header document-viewer-header">
+          <div>
+            <p class="eyebrow">{{ .TypeLabel }}</p>
+            <h2>{{ .Document.Name }}</h2>
+            <p class="document-viewer-meta">Updated {{ .Updated }}</p>
+          </div>
+          <div class="button-row">
+            <a class="button secondary" href="/documents">Back to documents</a>
+            <a class="button" href="{{ .DownloadURL }}">Open PDF directly</a>
+          </div>
+        </div>
+
+        <iframe class="document-preview" src="{{ .DownloadURL }}" title="PDF preview for {{ .Document.Name }}"></iframe>
+      </section>
+    </main>
+  </body>
+</html>
