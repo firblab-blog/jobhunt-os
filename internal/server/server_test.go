@@ -86,6 +86,202 @@ func TestHomeRendersEmptyDashboardStates(t *testing.T) {
 	}
 }
 
+func TestHomeRendersEmptyStoreDashboardStats(t *testing.T) {
+	t.Parallel()
+
+	rec := requestWithStore(http.MethodGet, "/", nil, &fakeApplicationStore{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"No pipeline data yet.",
+		"Add an active opportunity to start building the follow-up queue.",
+		"Priority mix will appear once there is active work.",
+		"No active opportunities to age yet.",
+		"No tracked application activity this week yet.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body does not contain %q", want)
+		}
+	}
+	if strings.Contains(body, "dashboard-pipeline-segment") {
+		t.Fatalf("empty dashboard rendered pipeline count segments")
+	}
+}
+
+func TestHomeRendersThisWeekMomentumStats(t *testing.T) {
+	t.Parallel()
+
+	srv := New(nil).(*Server)
+	var body bytes.Buffer
+
+	err := srv.templates.ExecuteTemplate(&body, "home.html", dashboardData{
+		Stats: dashboardStats{
+			ThisWeekActivity: dashboardThisWeekActivity{
+				CreatedApplications: 3,
+				UpdatedApplications: 4,
+				Events:              2,
+				Total:               9,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExecuteTemplate() error = %v", err)
+	}
+	got := body.String()
+	for _, want := range []string{
+		"This week",
+		"Momentum",
+		"New applications",
+		"Application updates",
+		"Timeline events",
+		"9 tracked updates this week.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestHomeRendersThemeFromCookie(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		themeDark:  `<html lang="en" data-theme="dark">`,
+		themeLight: `<html lang="en" data-theme="light">`,
+		"midnight": `<html lang="en" data-theme="system">`,
+	}
+	for cookieValue, want := range tests {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.AddCookie(&http.Cookie{Name: themeCookieName, Value: cookieValue})
+		rec := httptest.NewRecorder()
+
+		New(nil).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		if body := rec.Body.String(); !strings.Contains(body, want) {
+			t.Fatalf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestThemeFromRequestParsesCookie(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"":        themeSystem,
+		"system":  themeSystem,
+		" light ": themeLight,
+		"DARK":    themeDark,
+		"sepia":   themeSystem,
+	}
+	for cookieValue, want := range tests {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		if cookieValue != "" {
+			req.AddCookie(&http.Cookie{Name: themeCookieName, Value: cookieValue})
+		}
+		if got := themeFromRequest(req); got != want {
+			t.Fatalf("themeFromRequest(%q) = %q, want %q", cookieValue, got, want)
+		}
+	}
+}
+
+func TestThemeUpdateSetsCookieAndRedirects(t *testing.T) {
+	t.Parallel()
+
+	rec := request(http.MethodGet, "/theme?theme=dark&return_to="+url.QueryEscape("/applications?q=atlas&status=applied"))
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if location := rec.Header().Get("Location"); location != "/applications?q=atlas&status=applied" {
+		t.Fatalf("Location = %q, want /applications?q=atlas&status=applied", location)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies len = %d, want 1", len(cookies))
+	}
+	cookie := cookies[0]
+	if cookie.Name != themeCookieName || cookie.Value != themeDark {
+		t.Fatalf("theme cookie = %s:%s, want %s:%s", cookie.Name, cookie.Value, themeCookieName, themeDark)
+	}
+	if cookie.Path != "/" || cookie.MaxAge <= 0 || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("theme cookie attributes = %#v, want persistent root HttpOnly SameSite=Lax cookie", cookie)
+	}
+}
+
+func TestThemeControlEscapesReturnToWithMultipleQueryParams(t *testing.T) {
+	t.Parallel()
+
+	rec := requestWithStore(http.MethodGet, "/applications?q=atlas&status=applied", nil, &fakeApplicationStore{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	escapedReturnTo := url.QueryEscape("/applications?q=atlas&status=applied")
+	body := rec.Body.String()
+	for _, theme := range []string{themeSystem, themeLight, themeDark} {
+		want := `/theme?theme=` + theme + `&amp;return_to=` + escapedReturnTo
+		if !strings.Contains(body, want) {
+			t.Fatalf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestThemeUpdateInvalidValueFallsBackToSystem(t *testing.T) {
+	t.Parallel()
+
+	rec := request(http.MethodGet, "/theme?theme=neon&return_to=/")
+
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies len = %d, want 1", len(cookies))
+	}
+	if got := cookies[0].Value; got != themeSystem {
+		t.Fatalf("theme cookie value = %q, want %q", got, themeSystem)
+	}
+}
+
+func TestThemeUpdateUsesSafeRedirectTargets(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"/theme?theme=light&return_to=/contacts":                  "/contacts",
+		"/theme?theme=light&return_to=https://evil.example/phish": "/",
+		"/theme?theme=light&return_to=//evil.example/phish":       "/",
+		"/theme?theme=light&return_to=/theme%3Ftheme%3Ddark":      "/",
+	}
+	for target, want := range tests {
+		rec := request(http.MethodGet, target)
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("%s status = %d, want %d", target, rec.Code, http.StatusSeeOther)
+		}
+		if location := rec.Header().Get("Location"); location != want {
+			t.Fatalf("%s Location = %q, want %q", target, location, want)
+		}
+	}
+}
+
+func TestThemeUpdateFallsBackToSameOriginReferer(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "/theme?theme=light", nil)
+	req.Header.Set("Referer", "http://example.com/documents?type=resume")
+	rec := httptest.NewRecorder()
+
+	New(nil).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if location := rec.Header().Get("Location"); location != "/documents?type=resume" {
+		t.Fatalf("Location = %q, want /documents?type=resume", location)
+	}
+}
+
 func TestHomeRendersDashboardFromStore(t *testing.T) {
 	t.Parallel()
 
@@ -185,6 +381,172 @@ func TestDashboardQueuePrioritizesActiveWork(t *testing.T) {
 	if got := items[0].QueueLabel; got != "Overdue" {
 		t.Fatalf("first queue label = %q, want Overdue", got)
 	}
+}
+
+func TestDashboardStatsForCalculatesTrackingCounts(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 7, 16, 0, 0, 0, time.UTC)
+	createdThisWeek := time.Date(2026, 5, 4, 14, 0, 0, 0, time.UTC)
+	updatedThisWeek := time.Date(2026, 5, 5, 14, 0, 0, 0, time.UTC)
+	updatedToday := time.Date(2026, 5, 7, 14, 0, 0, 0, time.UTC)
+	lastWeek := time.Date(2026, 5, 1, 14, 0, 0, 0, time.UTC)
+	overdue := time.Date(2026, 5, 6, 14, 0, 0, 0, time.UTC)
+	dueToday := time.Date(2026, 5, 7, 14, 0, 0, 0, time.UTC)
+	upcoming := time.Date(2026, 5, 10, 14, 0, 0, 0, time.UTC)
+	stale := now.AddDate(0, 0, -staleActiveDays)
+
+	stats := dashboardStatsFor([]model.Application{
+		{
+			ID:        "app_prospect",
+			Company:   "Prospect Co",
+			Role:      "Platform Engineer",
+			Status:    model.StatusProspect,
+			Priority:  model.PriorityHigh,
+			CreatedAt: createdThisWeek,
+			UpdatedAt: updatedThisWeek,
+			NextAction: model.NextAction{
+				Summary: "Finish application draft",
+				Due:     &overdue,
+			},
+		},
+		{
+			ID:        "app_applied",
+			Company:   "Applied Co",
+			Role:      "Staff Engineer",
+			Status:    model.StatusApplied,
+			Priority:  model.PriorityNormal,
+			CreatedAt: lastWeek,
+			UpdatedAt: updatedToday,
+			NextAction: model.NextAction{
+				Summary: "Follow up with recruiter",
+				Due:     &dueToday,
+			},
+		},
+		{
+			ID:        "app_interviewing",
+			Company:   "Interview Co",
+			Role:      "Infrastructure Lead",
+			Status:    model.StatusInterviewing,
+			Priority:  model.PriorityLow,
+			CreatedAt: lastWeek,
+			UpdatedAt: stale,
+			NextAction: model.NextAction{
+				Summary: "Prep panel interview",
+				Due:     &upcoming,
+			},
+		},
+		{
+			ID:        "app_offer",
+			Company:   "Offer Co",
+			Role:      "Engineering Manager",
+			Status:    model.StatusOffer,
+			Priority:  model.PriorityNormal,
+			CreatedAt: now.Add(-time.Hour),
+			UpdatedAt: now.Add(-time.Hour),
+		},
+		{
+			ID:        "app_rejected",
+			Company:   "Rejected Co",
+			Role:      "Developer",
+			Status:    model.StatusRejected,
+			Priority:  model.PriorityHigh,
+			CreatedAt: updatedThisWeek,
+			UpdatedAt: updatedToday,
+		},
+	}, []model.ApplicationEvent{
+		{
+			ID:         "evt_this_week",
+			OccurredAt: updatedThisWeek,
+		},
+		{
+			ID:         "evt_last_week",
+			OccurredAt: lastWeek,
+		},
+		{
+			ID:         "evt_future",
+			OccurredAt: now.Add(time.Hour),
+		},
+	}, now)
+
+	wantPipelineCounts := map[model.ApplicationStatus]int{
+		model.StatusProspect:     1,
+		model.StatusApplied:      1,
+		model.StatusInterviewing: 1,
+		model.StatusOffer:        1,
+		model.StatusRejected:     1,
+		model.StatusAccepted:     0,
+		model.StatusDeclined:     0,
+		model.StatusWithdrawn:    0,
+		model.StatusArchived:     0,
+	}
+	for status, want := range wantPipelineCounts {
+		if got := dashboardPipelineCount(t, stats.PipelineCounts, status); got != want {
+			t.Fatalf("pipeline count %q = %d, want %d", status, got, want)
+		}
+	}
+
+	if got, want := len(stats.PipelineCounts), len(applicationStatusOptions()); got != want {
+		t.Fatalf("pipeline count item len = %d, want %d", got, want)
+	}
+	if stats.FollowUpHealth.Overdue != 1 || stats.FollowUpHealth.DueToday != 1 ||
+		stats.FollowUpHealth.Upcoming != 1 || stats.FollowUpHealth.Unscheduled != 0 ||
+		stats.FollowUpHealth.NoNextAction != 1 {
+		t.Fatalf("follow-up health = %#v, want overdue=1 today=1 upcoming=1 unscheduled=0 noNextAction=1", stats.FollowUpHealth)
+	}
+	if stats.PriorityMix.High != 1 || stats.PriorityMix.Normal != 2 || stats.PriorityMix.Low != 1 {
+		t.Fatalf("priority mix = %#v, want high=1 normal=2 low=1", stats.PriorityMix)
+	}
+	if stats.ThisWeekActivity.CreatedApplications != 3 ||
+		stats.ThisWeekActivity.UpdatedApplications != 3 ||
+		stats.ThisWeekActivity.Events != 1 ||
+		stats.ThisWeekActivity.Total != 7 {
+		t.Fatalf("this-week activity = %#v, want created=3 updated=3 events=1 total=7", stats.ThisWeekActivity)
+	}
+	if stats.StaleActiveApplications != 1 {
+		t.Fatalf("stale active applications = %d, want 1", stats.StaleActiveApplications)
+	}
+	if stats.TotalApplications != 5 || stats.ActiveApplications != 4 {
+		t.Fatalf("application totals = total:%d active:%d, want total=5 active=4", stats.TotalApplications, stats.ActiveApplications)
+	}
+}
+
+func TestDashboardStatsForKeepsUnscheduledActionsSeparate(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 7, 16, 0, 0, 0, time.UTC)
+	stats := dashboardStatsFor([]model.Application{
+		{
+			ID:        "app_unscheduled",
+			Company:   "Northstar Systems",
+			Role:      "Senior Platform Engineer",
+			Status:    model.StatusApplied,
+			Priority:  model.PriorityNormal,
+			CreatedAt: now,
+			UpdatedAt: now,
+			NextAction: model.NextAction{
+				Summary: "Follow up with recruiter",
+			},
+		},
+	}, nil, now)
+
+	if stats.FollowUpHealth.Unscheduled != 1 {
+		t.Fatalf("unscheduled follow-up count = %d, want 1", stats.FollowUpHealth.Unscheduled)
+	}
+	if stats.FollowUpHealth.Upcoming != 0 {
+		t.Fatalf("upcoming follow-up count = %d, want 0", stats.FollowUpHealth.Upcoming)
+	}
+}
+
+func dashboardPipelineCount(t *testing.T, counts []dashboardStatCount, status model.ApplicationStatus) int {
+	t.Helper()
+	for _, count := range counts {
+		if count.Key == string(status) {
+			return count.Count
+		}
+	}
+	t.Fatalf("pipeline count for %q not found", status)
+	return 0
 }
 
 func TestSupportRoutesRenderPages(t *testing.T) {

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="{{ or .Theme.Value "system" }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,17 +8,20 @@
   </head>
   <body>
     <header class="topbar">
-      <div>
+      <div class="topbar-heading">
         <h1><a class="brand-link" href="/" aria-label="JobHunt OS dashboard">JobHunt OS</a></h1>
       </div>
-      <nav aria-label="Primary">
+      <div class="topbar-actions">
+        <nav aria-label="Primary">
         <a href="/" aria-current="page">Dashboard</a>
         <a href="/applications">Applications</a>
         <a href="/documents">Documents</a>
         <a href="/contacts">Contacts</a>
         <a href="/follow-ups">Follow-ups</a>
         <a href="/backup">Backup</a>
-      </nav>
+        </nav>
+        {{ template "theme_control" . }}
+      </div>
     </header>
 
     <main>
@@ -59,6 +62,169 @@
           <small>{{ .Action }}</small>
         </a>
         {{ end }}
+      </section>
+
+      <section class="dashboard-insights" aria-label="Dashboard health">
+        <article class="dashboard-card dashboard-pipeline-card">
+          <div class="dashboard-card-header">
+            <div>
+              <p class="eyebrow">Pipeline</p>
+              <h2>Where opportunities sit</h2>
+            </div>
+            <a class="dashboard-card-link" href="/applications">View all</a>
+          </div>
+          {{ if .Stats.TotalApplications }}
+          <div class="dashboard-pipeline-row" aria-label="Application pipeline by status">
+            {{ range .Stats.PipelineCounts }}
+            <a class="dashboard-pipeline-segment{{ if not .Count }} is-empty{{ end }}" data-status="{{ .Key }}" href="{{ .Href }}">
+              <strong>{{ .Count }}</strong>
+              <span>{{ .Label }}</span>
+            </a>
+            {{ end }}
+          </div>
+          {{ else }}
+          <div class="dashboard-empty-note">
+            <strong>No pipeline data yet.</strong>
+            <span>Add an application to start building the board.</span>
+          </div>
+          {{ end }}
+        </article>
+
+        <div class="dashboard-card-grid">
+          <article class="dashboard-card">
+            <div class="dashboard-card-header">
+              <div>
+                <p class="eyebrow">Follow-up health</p>
+                <h2>Keep promises visible</h2>
+              </div>
+              <a class="dashboard-card-link" href="/follow-ups">Open</a>
+            </div>
+            <div class="dashboard-health-grid" aria-label="Follow-up health counts">
+              <a href="/follow-ups" class="dashboard-health-item is-alert">
+                <strong>{{ .Stats.FollowUpHealth.Overdue }}</strong>
+                <span>Overdue</span>
+              </a>
+              <a href="/follow-ups" class="dashboard-health-item is-today">
+                <strong>{{ .Stats.FollowUpHealth.DueToday }}</strong>
+                <span>Today</span>
+              </a>
+              <a href="/follow-ups" class="dashboard-health-item">
+                <strong>{{ .Stats.FollowUpHealth.Upcoming }}</strong>
+                <span>Upcoming</span>
+              </a>
+              <a href="/applications" class="dashboard-health-item">
+                <strong>{{ .Stats.FollowUpHealth.Unscheduled }}</strong>
+                <span>No due date</span>
+              </a>
+              <a href="/applications" class="dashboard-health-item">
+                <strong>{{ .Stats.FollowUpHealth.NoNextAction }}</strong>
+                <span>No next action</span>
+              </a>
+            </div>
+            {{ if .Stats.ActiveApplications }}
+            {{ if or .Stats.FollowUpHealth.NoNextAction .Stats.FollowUpHealth.Unscheduled }}
+            <p class="dashboard-card-note">Add a concrete next action and due date to close the blind spots.</p>
+            {{ else }}
+            <p class="dashboard-card-note">Every active opportunity has a next action.</p>
+            {{ end }}
+            {{ else }}
+            <p class="dashboard-card-note">Add an active opportunity to start building the follow-up queue.</p>
+            {{ end }}
+          </article>
+
+          <article class="dashboard-card">
+            <div class="dashboard-card-header">
+              <div>
+                <p class="eyebrow">Priority mix</p>
+                <h2>Balance attention</h2>
+              </div>
+              <a class="dashboard-card-link" href="/applications">Tune</a>
+            </div>
+            <div class="dashboard-priority-row" aria-label="Priority mix for active applications">
+              <div class="dashboard-priority-item is-high">
+                <strong>{{ .Stats.PriorityMix.High }}</strong>
+                <span>High</span>
+              </div>
+              <div class="dashboard-priority-item">
+                <strong>{{ .Stats.PriorityMix.Normal }}</strong>
+                <span>Normal</span>
+              </div>
+              <div class="dashboard-priority-item is-low">
+                <strong>{{ .Stats.PriorityMix.Low }}</strong>
+                <span>Low</span>
+              </div>
+            </div>
+            {{ if .Stats.ActiveApplications }}
+            {{ if .Stats.PriorityMix.High }}
+            <p class="dashboard-card-note">Start with high-priority roles after today's due actions.</p>
+            {{ else }}
+            <p class="dashboard-card-note">No high-priority active roles are competing for attention.</p>
+            {{ end }}
+            {{ else }}
+            <p class="dashboard-card-note">Priority mix will appear once there is active work.</p>
+            {{ end }}
+          </article>
+
+          <article class="dashboard-card dashboard-momentum-card">
+            <div class="dashboard-card-header">
+              <div>
+                <p class="eyebrow">This week</p>
+                <h2>Momentum</h2>
+              </div>
+              <a class="dashboard-card-link" href="/applications">Open</a>
+            </div>
+            <div class="dashboard-momentum-total">
+              <strong>{{ .Stats.ThisWeekActivity.Total }}</strong>
+              <span>Total activity</span>
+            </div>
+            <div class="dashboard-momentum-grid" aria-label="Application activity this week">
+              <div class="dashboard-momentum-item">
+                <strong>{{ .Stats.ThisWeekActivity.CreatedApplications }}</strong>
+                <span>New applications</span>
+              </div>
+              <div class="dashboard-momentum-item">
+                <strong>{{ .Stats.ThisWeekActivity.UpdatedApplications }}</strong>
+                <span>Application updates</span>
+              </div>
+              <div class="dashboard-momentum-item">
+                <strong>{{ .Stats.ThisWeekActivity.Events }}</strong>
+                <span>Timeline events</span>
+              </div>
+            </div>
+            {{ if .Stats.ThisWeekActivity.Total }}
+            <p class="dashboard-card-note">{{ .Stats.ThisWeekActivity.Total }} tracked updates this week.</p>
+            {{ else }}
+            <p class="dashboard-card-note">No tracked application activity this week yet.</p>
+            {{ end }}
+          </article>
+
+          <article class="dashboard-card dashboard-stale-card">
+            <div class="dashboard-card-header">
+              <div>
+                <p class="eyebrow">Stale opportunities</p>
+                <h2>Needs a pulse check</h2>
+              </div>
+              <a class="dashboard-card-link" href="/applications">Review</a>
+            </div>
+            <ul class="dashboard-stale-list">
+              <li>
+                <strong>{{ .Stats.StaleActiveApplications }}</strong>
+                <span>Active idle 7+ days</span>
+              </li>
+              {{ if .Stats.StaleActiveApplications }}
+              <li>
+                <strong>Next</strong>
+                <span>Refresh the oldest stale application or archive it.</span>
+              </li>
+              {{ else }}
+              <li>
+                <strong>Clear</strong>
+                <span>{{ if .Stats.ActiveApplications }}No active opportunity has gone quiet for a week.{{ else }}No active opportunities to age yet.{{ end }}</span>
+              </li>
+              {{ end }}
+            </ul>
+          </article>
+        </div>
       </section>
 
       <section class="workspace">

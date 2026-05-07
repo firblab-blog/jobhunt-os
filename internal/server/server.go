@@ -13,8 +13,10 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +29,12 @@ import (
 const (
 	maxPostingPDFBytes       int64 = 20 << 20
 	maxPostingMultipartBytes int64 = maxPostingPDFBytes + (2 << 20)
+	staleActiveDays                = 7
+	themeCookieName                = "jobhunt_theme"
+	themeCookieMaxAge              = 60 * 60 * 24 * 365
+	themeSystem                    = "system"
+	themeLight                     = "light"
+	themeDark                      = "dark"
 )
 
 type Server struct {
@@ -41,9 +49,11 @@ type Options struct {
 }
 
 type dashboardData struct {
+	Theme        pageTheme
 	Applications []dashboardApplication
 	Metrics      []dashboardMetric
 	NextActions  []dashboardNextAction
+	Stats        dashboardStats
 }
 
 type dashboardApplication struct {
@@ -64,6 +74,44 @@ type dashboardMetric struct {
 	Href   string
 }
 
+type dashboardStats struct {
+	PipelineCounts          []dashboardStatCount
+	FollowUpHealth          dashboardFollowUpHealth
+	PriorityMix             dashboardPriorityMix
+	ThisWeekActivity        dashboardThisWeekActivity
+	TotalApplications       int
+	ActiveApplications      int
+	StaleActiveApplications int
+}
+
+type dashboardStatCount struct {
+	Key   string
+	Label string
+	Count int
+	Href  string
+}
+
+type dashboardFollowUpHealth struct {
+	Overdue      int
+	DueToday     int
+	Upcoming     int
+	Unscheduled  int
+	NoNextAction int
+}
+
+type dashboardPriorityMix struct {
+	High   int
+	Normal int
+	Low    int
+}
+
+type dashboardThisWeekActivity struct {
+	CreatedApplications int
+	UpdatedApplications int
+	Events              int
+	Total               int
+}
+
 type dashboardNextAction struct {
 	Text  string
 	Href  string
@@ -72,6 +120,7 @@ type dashboardNextAction struct {
 }
 
 type applicationsIndexData struct {
+	Theme         pageTheme
 	Applications  []applicationListItem
 	Query         string
 	Status        string
@@ -90,6 +139,7 @@ type applicationListItem struct {
 }
 
 type applicationsFormData struct {
+	Theme           pageTheme
 	CSRFToken       template.HTML
 	Values          applicationFormValues
 	Errors          formErrors
@@ -98,6 +148,7 @@ type applicationsFormData struct {
 }
 
 type applicationShowData struct {
+	Theme            pageTheme
 	Application      model.Application
 	StatusLabel      string
 	Priority         string
@@ -178,6 +229,7 @@ type selectOption struct {
 }
 
 type documentsIndexData struct {
+	Theme       pageTheme
 	CSRFToken   template.HTML
 	Documents   []documentItem
 	Values      documentFormValues
@@ -194,6 +246,7 @@ type documentItem struct {
 }
 
 type documentShowData struct {
+	Theme       pageTheme
 	Document    model.Document
 	TypeLabel   string
 	Updated     string
@@ -207,6 +260,7 @@ type documentFormValues struct {
 }
 
 type contactsIndexData struct {
+	Theme     pageTheme
 	CSRFToken template.HTML
 	Contacts  []contactItem
 	Values    contactFormValues
@@ -229,6 +283,7 @@ type contactFormValues struct {
 }
 
 type followUpsIndexData struct {
+	Theme pageTheme
 	Items []followUpItem
 }
 
@@ -243,7 +298,21 @@ type followUpItem struct {
 }
 
 type backupData struct {
+	Theme       pageTheme
 	GeneratedAt string
+}
+
+type pageTheme struct {
+	Value    string
+	Label    string
+	ReturnTo string
+	Options  []themeOption
+}
+
+type themeOption struct {
+	Value   string
+	Label   string
+	Current bool
 }
 
 type exportSnapshot struct {
@@ -264,7 +333,7 @@ func New(appStore store.ApplicationStore) http.Handler {
 }
 
 func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler {
-	templates := template.Must(template.ParseFS(jobhuntos.Assets, "web/templates/*.html"))
+	templates := template.Must(template.New("").Funcs(templateFuncs()).ParseFS(jobhuntos.Assets, "web/templates/*.html"))
 
 	s := &Server{
 		mux:       http.NewServeMux(),
@@ -280,6 +349,7 @@ func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler 
 
 	s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles))))
 	s.mux.HandleFunc("GET /healthz", s.healthz)
+	s.mux.HandleFunc("GET /theme", s.themeUpdate)
 	s.mux.HandleFunc("GET /{$}", s.home)
 	s.mux.HandleFunc("GET /applications", s.applicationsIndex)
 	s.mux.HandleFunc("GET /applications/new", s.applicationsNew)
@@ -299,6 +369,16 @@ func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler 
 	s.mux.HandleFunc("GET /export.json", s.exportJSON)
 
 	return s
+}
+
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
+		"queryEscape": queryEscapeTemplateValue,
+	}
+}
+
+func queryEscapeTemplateValue(value string) template.URL {
+	return template.URL(url.QueryEscape(value))
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -327,16 +407,28 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
-	data := s.dashboard(r)
+	s.render(w, r, "home.html", s.dashboard(r))
+}
 
-	var body bytes.Buffer
-	if err := s.templates.ExecuteTemplate(&body, "home.html", data); err != nil {
-		serverError(w, r, err)
-		return
+func (s *Server) themeUpdate(w http.ResponseWriter, r *http.Request) {
+	value := normalizeTheme(r.URL.Query().Get("theme"))
+	http.SetCookie(w, &http.Cookie{
+		Name:     themeCookieName,
+		Value:    value,
+		Path:     "/",
+		MaxAge:   themeCookieMaxAge,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	target := safeRedirectTarget(r, r.URL.Query().Get("return_to"))
+	if target == "" {
+		target = safeRedirectTarget(r, r.Referer())
 	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(body.Bytes())
+	if target == "" {
+		target = "/"
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (s *Server) dashboard(r *http.Request) dashboardData {
@@ -387,6 +479,7 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 	}
 
 	items := dashboardQueue(applications, now, 5)
+	stats := dashboardStatsFor(applications, s.dashboardApplicationEvents(r.Context(), applications), now)
 
 	documentCount, err := s.store.CountDocuments(r.Context())
 	if err != nil {
@@ -403,6 +496,7 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 		},
 		Applications: items,
 		NextActions:  nextActions,
+		Stats:        stats,
 	}
 }
 
@@ -463,7 +557,143 @@ func fallbackDashboardData() dashboardData {
 			{Text: "Send recruiter follow-up for Atlas Cloud.", Meta: "Applied", State: "Ready when you are"},
 			{Text: "Attach tailored cover letter to Signal Works draft.", Meta: "Prospect", State: "High priority"},
 		},
+		Stats: dashboardStats{
+			PipelineCounts: []dashboardStatCount{
+				{Key: string(model.StatusProspect), Label: "Prospect", Count: 4, Href: "/applications?status=prospect"},
+				{Key: string(model.StatusApplied), Label: "Applied", Count: 5, Href: "/applications?status=applied"},
+				{Key: string(model.StatusInterviewing), Label: "Interviewing", Count: 2, Href: "/applications?status=interviewing"},
+				{Key: string(model.StatusOffer), Label: "Offer", Count: 1, Href: "/applications?status=offer"},
+				{Key: string(model.StatusAccepted), Label: "Accepted", Count: 0, Href: "/applications?status=accepted"},
+				{Key: string(model.StatusDeclined), Label: "Declined", Count: 0, Href: "/applications?status=declined"},
+				{Key: string(model.StatusRejected), Label: "Rejected", Count: 3, Href: "/applications?status=rejected"},
+				{Key: string(model.StatusWithdrawn), Label: "Withdrawn", Count: 1, Href: "/applications?status=withdrawn"},
+				{Key: string(model.StatusArchived), Label: "Archived", Count: 0, Href: "/applications?status=archived"},
+			},
+			FollowUpHealth: dashboardFollowUpHealth{
+				Overdue:      1,
+				DueToday:     1,
+				Upcoming:     1,
+				Unscheduled:  1,
+				NoNextAction: 2,
+			},
+			PriorityMix: dashboardPriorityMix{
+				High:   5,
+				Normal: 6,
+				Low:    1,
+			},
+			ThisWeekActivity: dashboardThisWeekActivity{
+				CreatedApplications: 2,
+				UpdatedApplications: 5,
+				Events:              4,
+				Total:               11,
+			},
+			TotalApplications:       16,
+			ActiveApplications:      12,
+			StaleActiveApplications: 2,
+		},
 	}
+}
+
+func (s *Server) dashboardApplicationEvents(ctx context.Context, applications []model.Application) []model.ApplicationEvent {
+	events := make([]model.ApplicationEvent, 0)
+	for _, app := range applications {
+		appEvents, err := s.store.ListApplicationEvents(ctx, app.ID)
+		if err != nil {
+			slog.Error("load dashboard application events", "application_id", app.ID, "error", err)
+			continue
+		}
+		events = append(events, appEvents...)
+	}
+	return events
+}
+
+func dashboardStatsFor(applications []model.Application, events []model.ApplicationEvent, now time.Time) dashboardStats {
+	pipelineCounts := dashboardPipelineCounts(applications)
+	stats := dashboardStats{
+		PipelineCounts:    pipelineCounts,
+		TotalApplications: len(applications),
+	}
+	staleBefore := now.AddDate(0, 0, -staleActiveDays)
+	weekStart := startOfWeek(now)
+
+	for _, app := range applications {
+		active := isActiveStatus(app.Status)
+		if active {
+			stats.ActiveApplications++
+			stats.FollowUpHealth = dashboardFollowUpHealthFor(stats.FollowUpHealth, app, now)
+			stats.PriorityMix = dashboardPriorityMixFor(stats.PriorityMix, app.Priority)
+			if !app.UpdatedAt.IsZero() && !app.UpdatedAt.After(staleBefore) {
+				stats.StaleActiveApplications++
+			}
+		}
+		if inTimeWindow(app.CreatedAt, weekStart, now) {
+			stats.ThisWeekActivity.CreatedApplications++
+		}
+		if inTimeWindow(app.UpdatedAt, weekStart, now) && !app.UpdatedAt.Equal(app.CreatedAt) {
+			stats.ThisWeekActivity.UpdatedApplications++
+		}
+	}
+
+	for _, event := range events {
+		if inTimeWindow(event.OccurredAt, weekStart, now) {
+			stats.ThisWeekActivity.Events++
+		}
+	}
+	stats.ThisWeekActivity.Total = stats.ThisWeekActivity.CreatedApplications +
+		stats.ThisWeekActivity.UpdatedApplications +
+		stats.ThisWeekActivity.Events
+	return stats
+}
+
+func dashboardPipelineCounts(applications []model.Application) []dashboardStatCount {
+	counts := make(map[model.ApplicationStatus]int, len(applicationStatusOptions()))
+	for _, app := range applications {
+		counts[app.Status]++
+	}
+
+	items := make([]dashboardStatCount, 0, len(applicationStatusOptions()))
+	for _, option := range applicationStatusOptions() {
+		status := model.ApplicationStatus(option.Value)
+		items = append(items, dashboardStatCount{
+			Key:   option.Value,
+			Label: option.Label,
+			Count: counts[status],
+			Href:  "/applications?status=" + option.Value,
+		})
+	}
+	return items
+}
+
+func dashboardFollowUpHealthFor(health dashboardFollowUpHealth, app model.Application, now time.Time) dashboardFollowUpHealth {
+	if app.NextAction.Summary == "" {
+		health.NoNextAction++
+		return health
+	}
+	if app.NextAction.Due == nil || app.NextAction.Due.IsZero() {
+		health.Unscheduled++
+		return health
+	}
+	switch dashboardDueRank(app.NextAction.Due, now) {
+	case 0:
+		health.Overdue++
+	case 1:
+		health.DueToday++
+	default:
+		health.Upcoming++
+	}
+	return health
+}
+
+func dashboardPriorityMixFor(mix dashboardPriorityMix, priority model.Priority) dashboardPriorityMix {
+	switch priority {
+	case model.PriorityHigh:
+		mix.High++
+	case model.PriorityLow:
+		mix.Low++
+	default:
+		mix.Normal++
+	}
+	return mix
 }
 
 func dashboardQueue(applications []model.Application, now time.Time, limit int) []dashboardApplication {
@@ -1286,6 +1516,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 
 func (s *Server) renderWithStatus(w http.ResponseWriter, r *http.Request, name string, data any, status int) {
 	var body bytes.Buffer
+	data = withPageTheme(r, data)
 	if err := s.templates.ExecuteTemplate(&body, name, data); err != nil {
 		serverError(w, r, err)
 		return
@@ -1294,6 +1525,134 @@ func (s *Server) renderWithStatus(w http.ResponseWriter, r *http.Request, name s
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = w.Write(body.Bytes())
+}
+
+func withPageTheme(r *http.Request, data any) any {
+	theme := pageThemeForRequest(r)
+	themeType := reflect.TypeOf(theme)
+	themeValue := reflect.ValueOf(theme)
+	value := reflect.ValueOf(data)
+	if !value.IsValid() {
+		return data
+	}
+
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() || value.Elem().Kind() != reflect.Struct {
+			return data
+		}
+		copyValue := reflect.New(value.Elem().Type())
+		copyValue.Elem().Set(value.Elem())
+		field := copyValue.Elem().FieldByName("Theme")
+		if field.IsValid() && field.CanSet() && field.Type() == themeType {
+			field.Set(themeValue)
+			return copyValue.Interface()
+		}
+		return data
+	}
+
+	if value.Kind() != reflect.Struct {
+		return data
+	}
+	copyValue := reflect.New(value.Type()).Elem()
+	copyValue.Set(value)
+	field := copyValue.FieldByName("Theme")
+	if field.IsValid() && field.CanSet() && field.Type() == themeType {
+		field.Set(themeValue)
+		return copyValue.Interface()
+	}
+	return data
+}
+
+func pageThemeForRequest(r *http.Request) pageTheme {
+	value := themeFromRequest(r)
+	options := []themeOption{
+		{Value: themeSystem, Label: "System", Current: value == themeSystem},
+		{Value: themeLight, Label: "Light", Current: value == themeLight},
+		{Value: themeDark, Label: "Dark", Current: value == themeDark},
+	}
+	return pageTheme{
+		Value:    value,
+		Label:    themeLabel(value),
+		ReturnTo: currentRequestTarget(r),
+		Options:  options,
+	}
+}
+
+func themeFromRequest(r *http.Request) string {
+	cookie, err := r.Cookie(themeCookieName)
+	if err != nil {
+		return themeSystem
+	}
+	return normalizeTheme(cookie.Value)
+}
+
+func normalizeTheme(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case themeLight:
+		return themeLight
+	case themeDark:
+		return themeDark
+	default:
+		return themeSystem
+	}
+}
+
+func themeLabel(value string) string {
+	switch normalizeTheme(value) {
+	case themeLight:
+		return "Light"
+	case themeDark:
+		return "Dark"
+	default:
+		return "System"
+	}
+}
+
+func currentRequestTarget(r *http.Request) string {
+	if r == nil || r.URL == nil {
+		return "/"
+	}
+	target := r.URL.RequestURI()
+	if target == "" {
+		return "/"
+	}
+	return target
+}
+
+func safeRedirectTarget(r *http.Request, candidate string) string {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return ""
+	}
+	parsed, err := url.Parse(candidate)
+	if err != nil {
+		return ""
+	}
+	if parsed.IsAbs() || parsed.Host != "" {
+		if r == nil || !sameRequestHost(r, parsed) {
+			return ""
+		}
+		if parsed.Path == "" {
+			parsed.Path = "/"
+		}
+	} else if parsed.Path == "" || !strings.HasPrefix(parsed.Path, "/") || strings.HasPrefix(parsed.Path, "//") {
+		return ""
+	}
+
+	if parsed.Path == "/theme" {
+		return "/"
+	}
+	if parsed.RawQuery == "" {
+		return parsed.EscapedPath()
+	}
+	return parsed.EscapedPath() + "?" + parsed.RawQuery
+}
+
+func sameRequestHost(r *http.Request, target *url.URL) bool {
+	if r.Host == "" || target.Host == "" || !strings.EqualFold(r.Host, target.Host) {
+		return false
+	}
+	return target.Scheme == "http" || target.Scheme == "https"
 }
 
 func parsePostingMultipartForm(w http.ResponseWriter, r *http.Request) (*formData, multipart.File, *multipart.FileHeader, error) {
@@ -1923,6 +2282,16 @@ func endOfDay(value time.Time) time.Time {
 	local := value.Local()
 	year, month, day := local.Date()
 	return time.Date(year, month, day, 23, 59, 59, int(time.Second-time.Nanosecond), local.Location())
+}
+
+func startOfWeek(value time.Time) time.Time {
+	dayStart := startOfDay(value)
+	weekdayOffset := (int(dayStart.Weekday()) + 6) % 7
+	return dayStart.AddDate(0, 0, -weekdayOffset)
+}
+
+func inTimeWindow(value, start, end time.Time) bool {
+	return !value.IsZero() && !value.Before(start) && !value.After(end)
 }
 
 func isActiveStatus(status model.ApplicationStatus) bool {

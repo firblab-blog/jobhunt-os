@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="{{ or .Theme.Value "system" }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,18 +8,21 @@
   </head>
   <body>
     <header class="topbar">
-      <div>
+      <div class="topbar-heading">
         <p class="eyebrow">Next actions</p>
         <h1>Follow-ups</h1>
       </div>
-      <nav aria-label="Primary">
+      <div class="topbar-actions">
+        <nav aria-label="Primary">
         <a href="/">Dashboard</a>
         <a href="/applications">Applications</a>
         <a href="/documents">Documents</a>
         <a href="/contacts">Contacts</a>
         <a href="/follow-ups" aria-current="page">Follow-ups</a>
         <a href="/backup">Backup</a>
-      </nav>
+        </nav>
+        {{ template "theme_control" . }}
+      </div>
     </header>
 
     <main>

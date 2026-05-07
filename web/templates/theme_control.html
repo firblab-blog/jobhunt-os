@@ -1,0 +1,16 @@
+{{ define "theme_control" }}
+{{ $themeValue := or .Theme.Value "system" }}
+{{ $themeLabel := or .Theme.Label "System" }}
+<details class="theme-control">
+  <summary>Theme: {{ $themeLabel }}</summary>
+  <div class="theme-options">
+    {{ range .Theme.Options }}
+    <a href="/theme?theme={{ .Value }}&amp;return_to={{ queryEscape $.Theme.ReturnTo }}"{{ if .Current }} class="is-current" aria-current="true"{{ end }}>{{ .Label }}</a>
+    {{ else }}
+    <a class="{{ if eq $themeValue "system" }}is-current{{ end }}" href="/theme?theme=system"{{ if eq $themeValue "system" }} aria-current="true"{{ end }}>System</a>
+    <a class="{{ if eq $themeValue "light" }}is-current{{ end }}" href="/theme?theme=light"{{ if eq $themeValue "light" }} aria-current="true"{{ end }}>Light</a>
+    <a class="{{ if eq $themeValue "dark" }}is-current{{ end }}" href="/theme?theme=dark"{{ if eq $themeValue "dark" }} aria-current="true"{{ end }}>Dark</a>
+    {{ end }}
+  </div>
+</details>
+{{ end }}
