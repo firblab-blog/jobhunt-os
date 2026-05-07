@@ -181,10 +181,9 @@ type documentItem struct {
 }
 
 type documentFormValues struct {
-	Name        string
-	Type        string
-	StoragePath string
-	Notes       string
+	Name  string
+	Type  string
+	Notes string
 }
 
 type contactsIndexData struct {
@@ -489,10 +488,13 @@ func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	form, err := parseLimitedForm(w, r, defaultMaxFormBytes)
+	form, file, fileHeader, err := s.parseDocumentUploadForm(w, r)
 	if err != nil {
 		handleFormParseError(w, err)
 		return
+	}
+	if file != nil {
+		defer file.Close()
 	}
 	if err := verifyCSRF(r, time.Now()); err != nil {
 		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
@@ -500,9 +502,20 @@ func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	values := documentFormValuesFromForm(form)
-	document := documentFromForm(form)
+	document := documentFromUploadForm(form)
+	if !hasPostingPDF(fileHeader) {
+		form.errors.Add("document_file", "Choose a PDF to upload.")
+	}
+	if hasPostingPDF(fileHeader) && s.dataDir == "" {
+		form.errors.Add("document_file", "Document storage is not configured.")
+	}
+	if hasPostingPDF(fileHeader) && !form.errors.Any() {
+		if err := validatePostingPDF(file, fileHeader); err != nil {
+			form.errors.Add("document_file", "Choose a valid PDF under 20 MB.")
+		}
+	}
 	if !form.errors.Any() {
-		if _, err := s.store.CreateDocument(r.Context(), document); err != nil {
+		if _, err := s.saveDocumentPDF(r.Context(), document, file, fileHeader); err != nil {
 			form.errors.Add("form", "Could not save document. Please check the fields and try again.")
 			slog.Error("create document", "error", err)
 		} else {
@@ -1081,6 +1094,59 @@ func (s *Server) parseApplicationCreateForm(w http.ResponseWriter, r *http.Reque
 	return form, nil, nil, err
 }
 
+func (s *Server) parseDocumentUploadForm(w http.ResponseWriter, r *http.Request) (*formData, multipart.File, *multipart.FileHeader, error) {
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		form, err := parseLimitedForm(w, r, defaultMaxFormBytes)
+		return form, nil, nil, err
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, defaultMaxFormBytes)
+	if err := r.ParseMultipartForm(defaultMaxFormBytes); err != nil {
+		return nil, nil, nil, err
+	}
+
+	form := &formData{
+		values: trimmedValues(r.PostForm),
+		errors: formErrors{},
+	}
+
+	file, header, err := r.FormFile("document_file")
+	if err != nil {
+		if errors.Is(err, http.ErrMissingFile) {
+			return form, nil, nil, nil
+		}
+		return nil, nil, nil, err
+	}
+
+	return form, file, header, nil
+}
+
+func (s *Server) saveDocumentPDF(ctx context.Context, document model.Document, file multipart.File, header *multipart.FileHeader) (model.Document, error) {
+	if err := validatePostingPDF(file, header); err != nil {
+		return model.Document{}, err
+	}
+
+	documentID, err := newDocumentUploadID()
+	if err != nil {
+		return model.Document{}, err
+	}
+	storagePath := filepath.ToSlash(filepath.Join("documents", "library", documentID+".pdf"))
+	destination, err := s.writeDocumentPDF(storagePath, file, header)
+	if err != nil {
+		return model.Document{}, err
+	}
+
+	document.ID = documentID
+	document.StoragePath = storagePath
+	created, err := s.store.CreateDocument(ctx, document)
+	if err != nil {
+		_ = os.Remove(destination)
+		return model.Document{}, err
+	}
+
+	return created, nil
+}
+
 func (s *Server) savePostingPDF(ctx context.Context, app model.Application, file multipart.File, header *multipart.FileHeader) (model.ApplicationDocument, error) {
 	if err := validatePostingPDF(file, header); err != nil {
 		return model.ApplicationDocument{}, err
@@ -1091,40 +1157,16 @@ func (s *Server) savePostingPDF(ctx context.Context, app model.Application, file
 		return model.ApplicationDocument{}, err
 	}
 	storagePath := filepath.ToSlash(filepath.Join("documents", app.ID, documentID+".pdf"))
-	destination, err := safeDocumentPath(s.dataDir, storagePath)
-	if err != nil {
-		return model.ApplicationDocument{}, err
-	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
-		return model.ApplicationDocument{}, err
-	}
-
-	out, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	destination, err := s.writeDocumentPDF(storagePath, file, header)
 	if err != nil {
 		return model.ApplicationDocument{}, err
 	}
 	removeDestination := true
 	defer func() {
-		_ = out.Close()
 		if removeDestination {
 			_ = os.Remove(destination)
 		}
 	}()
-
-	headerBytes := make([]byte, 512)
-	n, err := file.Read(headerBytes)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return model.ApplicationDocument{}, err
-	}
-	if !bytes.HasPrefix(headerBytes[:n], []byte("%PDF-")) {
-		return model.ApplicationDocument{}, errors.New("posting document is not a PDF")
-	}
-	if _, err := out.Write(headerBytes[:n]); err != nil {
-		return model.ApplicationDocument{}, err
-	}
-	if _, err := io.Copy(out, io.LimitReader(file, maxPostingPDFBytes-int64(n)+1)); err != nil {
-		return model.ApplicationDocument{}, err
-	}
 
 	document := model.Document{
 		ID:          documentID,
@@ -1140,6 +1182,43 @@ func (s *Server) savePostingPDF(ctx context.Context, app model.Application, file
 
 	removeDestination = false
 	return attached, nil
+}
+
+func (s *Server) writeDocumentPDF(storagePath string, file multipart.File, header *multipart.FileHeader) (string, error) {
+	if err := validatePostingPDF(file, header); err != nil {
+		return "", err
+	}
+
+	destination, err := safeDocumentPath(s.dataDir, storagePath)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		return "", err
+	}
+
+	out, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", err
+	}
+	removeDestination := true
+	defer func() {
+		_ = out.Close()
+		if removeDestination {
+			_ = os.Remove(destination)
+		}
+	}()
+
+	written, err := io.Copy(out, io.LimitReader(file, maxPostingPDFBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if written > maxPostingPDFBytes {
+		return "", errors.New("document exceeds PDF upload limit")
+	}
+
+	removeDestination = false
+	return destination, nil
 }
 
 func hasPostingPDF(header *multipart.FileHeader) bool {
@@ -1508,19 +1587,17 @@ func documentReferenceLabel(document model.Document) string {
 
 func documentFormValuesFromForm(form *formData) documentFormValues {
 	return documentFormValues{
-		Name:        form.Value("name"),
-		Type:        form.Value("document_type"),
-		StoragePath: form.Value("storage_path"),
-		Notes:       form.Value("notes"),
+		Name:  form.Value("name"),
+		Type:  form.Value("document_type"),
+		Notes: form.Value("notes"),
 	}
 }
 
-func documentFromForm(form *formData) model.Document {
+func documentFromUploadForm(form *formData) model.Document {
 	document := model.Document{
-		Name:        form.RequiredString("name", "Name"),
-		Type:        model.DocumentType(form.RequiredString("document_type", "Document type")),
-		StoragePath: form.RequiredString("storage_path", "File path or reference"),
-		Notes:       form.Value("notes"),
+		Name:  form.RequiredString("name", "Name"),
+		Type:  model.DocumentType(form.RequiredString("document_type", "Document type")),
+		Notes: form.Value("notes"),
 	}
 	if document.Type != "" && !document.Type.Valid() {
 		form.errors.Add("document_type", "Document type must be valid.")

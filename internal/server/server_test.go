@@ -179,16 +179,25 @@ func TestApplicationsIndexFiltersList(t *testing.T) {
 func TestDocumentsCreateValidRedirects(t *testing.T) {
 	t.Parallel()
 
+	dataDir := t.TempDir()
 	appStore := &fakeApplicationStore{}
 	cookie, token := newPageCSRF(t, appStore, "/documents")
-	form := url.Values{
-		csrfFieldName:   {token},
-		"name":          {"Platform resume"},
-		"document_type": {string(model.DocumentResume)},
-		"storage_path":  {"documents/platform-resume.pdf"},
-		"notes":         {"Tailored to platform roles."},
+	form := map[string]string{
+		csrfFieldName:   token,
+		"name":          "Platform resume",
+		"document_type": string(model.DocumentResume),
+		"notes":         "Tailored to platform roles.",
 	}
-	rec := postFormWithCookie("/documents", form, cookie, appStore)
+	rec := postMultipartFileWithCookie(
+		"/documents",
+		form,
+		"document_file",
+		"platform-resume.pdf",
+		[]byte("%PDF-1.7\nresume\n"),
+		cookie,
+		appStore,
+		dataDir,
+	)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusSeeOther, rec.Body.String())
@@ -198,6 +207,52 @@ func TestDocumentsCreateValidRedirects(t *testing.T) {
 	}
 	if len(appStore.createdDocuments) != 1 {
 		t.Fatalf("createdDocuments len = %d, want 1", len(appStore.createdDocuments))
+	}
+	document := appStore.createdDocuments[0]
+	if document.Type != model.DocumentResume || document.Name != "Platform resume" {
+		t.Fatalf("created document = %#v", document)
+	}
+	if filepath.IsAbs(document.StoragePath) {
+		t.Fatalf("StoragePath = %q, want relative path", document.StoragePath)
+	}
+	if !strings.HasPrefix(document.StoragePath, "documents/library/") {
+		t.Fatalf("StoragePath = %q, want library document path", document.StoragePath)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, filepath.FromSlash(document.StoragePath))); err != nil {
+		t.Fatalf("uploaded PDF was not saved: %v", err)
+	}
+}
+
+func TestDocumentsCreateRejectsNonPDF(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	appStore := &fakeApplicationStore{}
+	cookie, token := newPageCSRF(t, appStore, "/documents")
+	form := map[string]string{
+		csrfFieldName:   token,
+		"name":          "Platform resume",
+		"document_type": string(model.DocumentResume),
+	}
+	rec := postMultipartFileWithCookie(
+		"/documents",
+		form,
+		"document_file",
+		"platform-resume.txt",
+		[]byte("not a pdf"),
+		cookie,
+		appStore,
+		dataDir,
+	)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnprocessableEntity)
+	}
+	if len(appStore.createdDocuments) != 0 {
+		t.Fatalf("createdDocuments len = %d, want 0", len(appStore.createdDocuments))
+	}
+	if !strings.Contains(rec.Body.String(), "Choose a valid PDF under 20 MB.") {
+		t.Fatalf("body does not contain PDF validation error")
 	}
 }
 
@@ -920,13 +975,17 @@ func postFormWithCookie(target string, form url.Values, cookie *http.Cookie, app
 }
 
 func postMultipartWithCookie(target string, fields map[string]string, fileName string, fileContent []byte, cookie *http.Cookie, appStore store.ApplicationStore, dataDir string) *httptest.ResponseRecorder {
+	return postMultipartFileWithCookie(target, fields, "posting_pdf", fileName, fileContent, cookie, appStore, dataDir)
+}
+
+func postMultipartFileWithCookie(target string, fields map[string]string, fileField string, fileName string, fileContent []byte, cookie *http.Cookie, appStore store.ApplicationStore, dataDir string) *httptest.ResponseRecorder {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	for name, value := range fields {
 		_ = writer.WriteField(name, value)
 	}
 	if fileName != "" {
-		part, _ := writer.CreateFormFile("posting_pdf", fileName)
+		part, _ := writer.CreateFormFile(fileField, fileName)
 		_, _ = part.Write(fileContent)
 	}
 	_ = writer.Close()

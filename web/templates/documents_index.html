@@ -65,10 +65,10 @@
         </div>
 
         <aside class="side-panel">
-          <form class="detail-form" method="post" action="/documents" novalidate>
+          <form class="detail-form" method="post" action="/documents" enctype="multipart/form-data" novalidate>
             {{ .CSRFToken }}
             <p class="eyebrow">Add document</p>
-            <h2>Record a local reference</h2>
+            <h2>Upload a PDF</h2>
 
             {{ with .Errors.Get "form" }}
             <div class="form-alert" role="alert">{{ . }}</div>
@@ -91,9 +91,9 @@
             </label>
 
             <label>
-              <span>File path or reference</span>
-              <input name="storage_path" value="{{ .Values.StoragePath }}" required aria-describedby="storage-path-error">
-              {{ with .Errors.Get "storage_path" }}<strong id="storage-path-error">{{ . }}</strong>{{ end }}
+              <span>PDF file</span>
+              <input name="document_file" type="file" accept="application/pdf,.pdf" required aria-describedby="document-file-error">
+              {{ with .Errors.Get "document_file" }}<strong id="document-file-error">{{ . }}</strong>{{ end }}
             </label>
 
             <label>
