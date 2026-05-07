@@ -793,8 +793,8 @@ func (s *Server) documentsDownload(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", `inline; filename="`+downloadFileName(document.Name)+`.pdf"`)
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'")
-	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'")
+	w.Header().Del("X-Frame-Options")
 	http.ServeFile(w, r, path)
 }
 

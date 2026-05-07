@@ -529,6 +529,45 @@ func TestDocumentsShowEmbedsInlinePDF(t *testing.T) {
 	}
 }
 
+func TestDocumentsDownloadAllowsInAppPreviewFrame(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	documentPath := filepath.Join(dataDir, "documents", "library", "doc_1.pdf")
+	if err := os.MkdirAll(filepath.Dir(documentPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(documentPath, []byte("%PDF-1.7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	document := model.Document{
+		ID:          "doc_1",
+		Name:        "Platform resume",
+		Type:        model.DocumentResume,
+		StoragePath: "documents/library/doc_1.pdf",
+		UpdatedAt:   time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC),
+	}
+	req := httptest.NewRequest(http.MethodGet, "/documents/doc_1/download", nil)
+	rec := httptest.NewRecorder()
+	NewWithOptions(&fakeApplicationStore{
+		documents: []model.Document{document},
+	}, Options{DataDir: dataDir}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "inline") {
+		t.Fatalf("Content-Disposition = %q, want inline", got)
+	}
+	if got := rec.Header().Get("X-Frame-Options"); got != "" {
+		t.Fatalf("X-Frame-Options = %q, want empty for in-app preview", got)
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); strings.Contains(got, "frame-ancestors") {
+		t.Fatalf("Content-Security-Policy = %q, want no frame-ancestors for in-app preview", got)
+	}
+}
+
 func TestApplicationsNewRendersCSRF(t *testing.T) {
 	t.Parallel()
 
