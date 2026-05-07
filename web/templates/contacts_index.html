@@ -16,14 +16,14 @@
         <a href="/">Dashboard</a>
         <a href="/applications">Applications</a>
         <a href="/documents">Documents</a>
-        <a href="/contacts">Contacts</a>
+        <a href="/contacts" aria-current="page">Contacts</a>
         <a href="/follow-ups">Follow-ups</a>
         <a href="/backup">Backup</a>
       </nav>
     </header>
 
     <main>
-      <section class="workspace">
+      <section class="workspace support-workspace">
         <div class="panel">
           <div class="panel-header">
             <div>
@@ -33,85 +33,86 @@
           </div>
 
           {{ if .Contacts }}
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Organization</th>
-                <th>Role</th>
-                <th>Contact</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{ range .Contacts }}
-              <tr>
-                <td>{{ .Name }}</td>
-                <td>{{ if .Organization }}{{ .Organization }}{{ else }}<span class="muted">Not set</span>{{ end }}</td>
-                <td>{{ if .Role }}{{ .Role }}{{ else }}<span class="muted">Not set</span>{{ end }}</td>
-                <td>
-                  {{ if .Email }}<span>{{ .Email }}</span>{{ end }}
-                  {{ if .Phone }}<small>{{ .Phone }}</small>{{ end }}
-                  {{ if and (not .Email) (not .Phone) }}<span class="muted">Not set</span>{{ end }}
-                </td>
-                <td>{{ .Updated }}</td>
-              </tr>
-              {{ end }}
-            </tbody>
-          </table>
+          <div class="support-list contact-list">
+            {{ range .Contacts }}
+            <article class="support-card contact-card">
+              <div class="support-card-main">
+                <div class="support-card-heading">
+                  <h3>{{ .Name }}</h3>
+                  <div class="support-card-subtitle">
+                    {{ if .Organization }}<span>{{ .Organization }}</span>{{ else }}<span class="muted">Organization not set</span>{{ end }}
+                    {{ if .Role }}<span>{{ .Role }}</span>{{ else }}<span class="muted">Role not set</span>{{ end }}
+                  </div>
+                </div>
+                {{ if .Notes }}<p class="support-notes">{{ .Notes }}</p>{{ end }}
+              </div>
+              <div class="support-card-meta contact-methods">
+                <span>Updated {{ .Updated }}</span>
+                {{ if .Email }}<span>{{ .Email }}</span>{{ end }}
+                {{ if .Phone }}<span>{{ .Phone }}</span>{{ end }}
+                {{ if .Location }}<span>{{ .Location }}</span>{{ end }}
+                {{ if and (not .Email) (not .Phone) }}<span class="muted">Email/phone not set</span>{{ end }}
+              </div>
+            </article>
+            {{ end }}
+          </div>
           {{ else }}
-          <div class="empty-panel">
+          <div class="empty-panel support-empty">
             <h2>No contacts recorded yet</h2>
             <p>Add recruiters, referrals, hiring managers, and interviewers as they show up in your process.</p>
           </div>
           {{ end }}
         </div>
 
-        <aside class="side-panel">
-          <form class="detail-form" method="post" action="/contacts" novalidate>
+        <aside class="side-panel support-side-panel">
+          <form class="detail-form support-form" method="post" action="/contacts" novalidate>
             {{ .CSRFToken }}
-            <p class="eyebrow">Add contact</p>
-            <h2>Save a person</h2>
+            <div class="support-form-header">
+              <p class="eyebrow">Add contact</p>
+              <h2>Save a person</h2>
+            </div>
 
             {{ with .Errors.Get "form" }}
             <div class="form-alert" role="alert">{{ . }}</div>
             {{ end }}
 
-            <label>
-              <span>Name</span>
-              <input name="name" value="{{ .Values.Name }}" autocomplete="name" required aria-describedby="contact-name-error">
-              {{ with .Errors.Get "name" }}<strong id="contact-name-error">{{ . }}</strong>{{ end }}
-            </label>
+            <div class="support-form-fields">
+              <label>
+                <span>Name</span>
+                <input name="name" value="{{ .Values.Name }}" autocomplete="name" required{{ with .Errors.Get "name" }} aria-invalid="true" aria-describedby="contact-name-error"{{ end }}>
+                {{ with .Errors.Get "name" }}<strong id="contact-name-error">{{ . }}</strong>{{ end }}
+              </label>
 
-            <label>
-              <span>Organization</span>
-              <input name="organization" value="{{ .Values.Organization }}" autocomplete="organization">
-            </label>
+              <label>
+                <span>Organization</span>
+                <input name="organization" value="{{ .Values.Organization }}" autocomplete="organization">
+              </label>
 
-            <label>
-              <span>Role</span>
-              <input name="role" value="{{ .Values.Role }}" autocomplete="organization-title">
-            </label>
+              <label>
+                <span>Role</span>
+                <input name="role" value="{{ .Values.Role }}" autocomplete="organization-title">
+              </label>
 
-            <label>
-              <span>Email</span>
-              <input name="email" type="email" value="{{ .Values.Email }}" autocomplete="email">
-            </label>
+              <label>
+                <span>Email</span>
+                <input name="email" type="email" value="{{ .Values.Email }}" autocomplete="email">
+              </label>
 
-            <label>
-              <span>Phone</span>
-              <input name="phone" value="{{ .Values.Phone }}" autocomplete="tel">
-            </label>
+              <label>
+                <span>Phone</span>
+                <input name="phone" value="{{ .Values.Phone }}" autocomplete="tel">
+              </label>
 
-            <label>
-              <span>Location</span>
-              <input name="location" value="{{ .Values.Location }}" autocomplete="address-level2">
-            </label>
+              <label>
+                <span>Location</span>
+                <input name="location" value="{{ .Values.Location }}" autocomplete="address-level2">
+              </label>
 
-            <label>
-              <span>Notes</span>
-              <textarea name="notes" rows="5">{{ .Values.Notes }}</textarea>
-            </label>
+              <label>
+                <span>Notes</span>
+                <textarea name="notes" rows="5">{{ .Values.Notes }}</textarea>
+              </label>
+            </div>
 
             <button type="submit">Save contact</button>
           </form>

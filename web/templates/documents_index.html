@@ -15,7 +15,7 @@
       <nav aria-label="Primary">
         <a href="/">Dashboard</a>
         <a href="/applications">Applications</a>
-        <a href="/documents">Documents</a>
+        <a href="/documents" aria-current="page">Documents</a>
         <a href="/contacts">Contacts</a>
         <a href="/follow-ups">Follow-ups</a>
         <a href="/backup">Backup</a>
@@ -23,7 +23,7 @@
     </header>
 
     <main>
-      <section class="workspace">
+      <section class="workspace support-workspace">
         <div class="panel">
           <div class="panel-header">
             <div>
@@ -33,73 +33,71 @@
           </div>
 
           {{ if .Documents }}
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Reference</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{ range .Documents }}
-              <tr>
-                <td>{{ .Name }}</td>
-                <td>{{ .TypeLabel }}</td>
-                <td>
-                  {{ if .DownloadURL }}<a class="table-link" href="{{ .DownloadURL }}">Open PDF</a>{{ else }}<span>{{ .ReferenceLabel }}</span>{{ end }}
-                  {{ if .Notes }}<small>{{ .Notes }}</small>{{ end }}
-                </td>
-                <td>{{ .Updated }}</td>
-              </tr>
-              {{ end }}
-            </tbody>
-          </table>
+          <div class="support-list document-library-list">
+            {{ range .Documents }}
+            <article class="support-card document-card">
+              <div class="support-card-main">
+                <div class="support-card-heading">
+                  <span class="support-pill">{{ .TypeLabel }}</span>
+                  <h3>{{ .Name }}</h3>
+                </div>
+                {{ if .Notes }}<p class="support-notes">{{ .Notes }}</p>{{ end }}
+              </div>
+              <div class="support-card-meta">
+                <span>Updated {{ .Updated }}</span>
+                {{ if .DownloadURL }}<a class="table-link" href="{{ .DownloadURL }}">Open PDF</a>{{ else }}<span class="muted">{{ .ReferenceLabel }}</span>{{ end }}
+              </div>
+            </article>
+            {{ end }}
+          </div>
           {{ else }}
-          <div class="empty-panel">
+          <div class="empty-panel support-empty">
             <h2>No documents recorded yet</h2>
             <p>Add the resumes, cover letters, portfolios, and work samples you want to track during the hunt.</p>
           </div>
           {{ end }}
         </div>
 
-        <aside class="side-panel">
-          <form class="detail-form" method="post" action="/documents" enctype="multipart/form-data" novalidate>
+        <aside class="side-panel support-side-panel">
+          <form class="detail-form support-form" method="post" action="/documents" enctype="multipart/form-data" novalidate>
             {{ .CSRFToken }}
-            <p class="eyebrow">Add document</p>
-            <h2>Upload a PDF</h2>
+            <div class="support-form-header">
+              <p class="eyebrow">Add document</p>
+              <h2>Upload a PDF</h2>
+            </div>
 
             {{ with .Errors.Get "form" }}
             <div class="form-alert" role="alert">{{ . }}</div>
             {{ end }}
 
-            <label>
-              <span>Name</span>
-              <input name="name" value="{{ .Values.Name }}" required aria-describedby="document-name-error">
-              {{ with .Errors.Get "name" }}<strong id="document-name-error">{{ . }}</strong>{{ end }}
-            </label>
+            <div class="support-form-fields">
+              <label>
+                <span>Name</span>
+                <input name="name" value="{{ .Values.Name }}" required{{ with .Errors.Get "name" }} aria-invalid="true" aria-describedby="document-name-error"{{ end }}>
+                {{ with .Errors.Get "name" }}<strong id="document-name-error">{{ . }}</strong>{{ end }}
+              </label>
 
-            <label>
-              <span>Type</span>
-              <select name="document_type" required aria-describedby="document-type-error">
-                {{ range .TypeOptions }}
-                <option value="{{ .Value }}" {{ if eq $.Values.Type .Value }}selected{{ end }}>{{ .Label }}</option>
-                {{ end }}
-              </select>
-              {{ with .Errors.Get "document_type" }}<strong id="document-type-error">{{ . }}</strong>{{ end }}
-            </label>
+              <label>
+                <span>Type</span>
+                <select name="document_type" required{{ with .Errors.Get "document_type" }} aria-invalid="true" aria-describedby="document-type-error"{{ end }}>
+                  {{ range .TypeOptions }}
+                  <option value="{{ .Value }}" {{ if eq $.Values.Type .Value }}selected{{ end }}>{{ .Label }}</option>
+                  {{ end }}
+                </select>
+                {{ with .Errors.Get "document_type" }}<strong id="document-type-error">{{ . }}</strong>{{ end }}
+              </label>
 
-            <label>
-              <span>PDF file</span>
-              <input name="document_file" type="file" accept="application/pdf,.pdf" required aria-describedby="document-file-error">
-              {{ with .Errors.Get "document_file" }}<strong id="document-file-error">{{ . }}</strong>{{ end }}
-            </label>
+              <label>
+                <span>PDF file</span>
+                <input name="document_file" type="file" accept="application/pdf,.pdf" required{{ with .Errors.Get "document_file" }} aria-invalid="true" aria-describedby="document-file-error"{{ end }}>
+                {{ with .Errors.Get "document_file" }}<strong id="document-file-error">{{ . }}</strong>{{ end }}
+              </label>
 
-            <label>
-              <span>Notes</span>
-              <textarea name="notes" rows="5">{{ .Values.Notes }}</textarea>
-            </label>
+              <label>
+                <span>Notes</span>
+                <textarea name="notes" rows="5">{{ .Values.Notes }}</textarea>
+              </label>
+            </div>
 
             <button type="submit">Save document</button>
           </form>

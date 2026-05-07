@@ -48,18 +48,27 @@ type dashboardData struct {
 
 type dashboardApplication struct {
 	model.Application
-	Status    string
-	StatusKey string
-	Updated   string
+	Status        string
+	StatusKey     string
+	PriorityLabel string
+	Updated       string
+	NextActionDue string
+	QueueLabel    string
+	ActionText    string
 }
 
 type dashboardMetric struct {
-	Label string
-	Value string
+	Label  string
+	Value  string
+	Action string
+	Href   string
 }
 
 type dashboardNextAction struct {
-	Text string
+	Text  string
+	Href  string
+	Meta  string
+	State string
 }
 
 type applicationsIndexData struct {
@@ -67,6 +76,9 @@ type applicationsIndexData struct {
 	Query         string
 	Status        string
 	StatusOptions []selectOption
+	TotalCount    int
+	ResultCount   int
+	HasFilters    bool
 }
 
 type applicationListItem struct {
@@ -332,9 +344,8 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 	active := 0
 	needFollowUp := 0
 	interviews := 0
-	items := make([]dashboardApplication, 0, min(len(applications), 5))
-	nextActions := make([]dashboardNextAction, 0)
 	now := time.Now()
+	nextActionApps := make([]model.Application, 0)
 
 	for _, app := range applications {
 		if isActiveStatus(app.Status) {
@@ -346,20 +357,27 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 		if app.NextAction.Summary != "" {
 			if app.NextAction.Due == nil || !app.NextAction.Due.After(endOfDay(now)) {
 				needFollowUp++
-				nextActions = append(nextActions, dashboardNextAction{
-					Text: nextActionText(app),
-				})
+				nextActionApps = append(nextActionApps, app)
 			}
 		}
-		if len(items) < 5 {
-			items = append(items, dashboardApplication{
-				Application: app,
-				Status:      statusLabel(app.Status),
-				StatusKey:   string(app.Status),
-				Updated:     shortDate(app.UpdatedAt),
-			})
-		}
 	}
+	sort.SliceStable(nextActionApps, func(i, j int) bool {
+		return dashboardNextActionLess(nextActionApps[i], nextActionApps[j], now)
+	})
+	if len(nextActionApps) > 5 {
+		nextActionApps = nextActionApps[:5]
+	}
+	nextActions := make([]dashboardNextAction, 0, len(nextActionApps))
+	for _, app := range nextActionApps {
+		nextActions = append(nextActions, dashboardNextAction{
+			Text:  nextActionText(app),
+			Href:  applicationHref(app),
+			Meta:  nextActionMeta(app, now),
+			State: nextActionState(app.NextAction.Due, now),
+		})
+	}
+
+	items := dashboardQueue(applications, now, 5)
 
 	documentCount, err := s.store.CountDocuments(r.Context())
 	if err != nil {
@@ -369,10 +387,10 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 
 	return dashboardData{
 		Metrics: []dashboardMetric{
-			{Label: "Active applications", Value: itoa(active)},
-			{Label: "Need follow-up", Value: itoa(needFollowUp)},
-			{Label: "Interview loops", Value: itoa(interviews)},
-			{Label: "Documents", Value: itoa(documentCount)},
+			{Label: "Active applications", Value: itoa(active), Action: "Work the queue", Href: "/applications"},
+			{Label: "Need follow-up", Value: itoa(needFollowUp), Action: "Clear today", Href: "/follow-ups"},
+			{Label: "Interview loops", Value: itoa(interviews), Action: "Prep next", Href: "/applications?status=interviewing"},
+			{Label: "Documents", Value: itoa(documentCount), Action: "Review library", Href: "/documents"},
 		},
 		Applications: items,
 		NextActions:  nextActions,
@@ -382,10 +400,10 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 func fallbackDashboardData() dashboardData {
 	return dashboardData{
 		Metrics: []dashboardMetric{
-			{Label: "Active applications", Value: "12"},
-			{Label: "Need follow-up", Value: "3"},
-			{Label: "Interview loops", Value: "2"},
-			{Label: "Draft documents", Value: "5"},
+			{Label: "Active applications", Value: "12", Action: "Work the queue", Href: "/applications"},
+			{Label: "Need follow-up", Value: "3", Action: "Clear today", Href: "/follow-ups"},
+			{Label: "Interview loops", Value: "2", Action: "Prep next", Href: "/applications?status=interviewing"},
+			{Label: "Documents", Value: "5", Action: "Review library", Href: "/documents"},
 		},
 		Applications: []dashboardApplication{
 			{
@@ -395,9 +413,12 @@ func fallbackDashboardData() dashboardData {
 					Status:     model.StatusInterviewing,
 					NextAction: model.NextAction{Summary: "Prep system design notes"},
 				},
-				Status:    "Interviewing",
-				StatusKey: "interviewing",
-				Updated:   "Today",
+				Status:        "Interviewing",
+				StatusKey:     "interviewing",
+				PriorityLabel: "High",
+				Updated:       "Today",
+				QueueLabel:    "Due today",
+				ActionText:    "Prep system design notes",
 			},
 			{
 				Application: model.Application{
@@ -406,9 +427,12 @@ func fallbackDashboardData() dashboardData {
 					Status:     model.StatusApplied,
 					NextAction: model.NextAction{Summary: "Follow up with recruiter"},
 				},
-				Status:    "Applied",
-				StatusKey: "applied",
-				Updated:   "Yesterday",
+				Status:        "Applied",
+				StatusKey:     "applied",
+				PriorityLabel: "Normal",
+				Updated:       "Yesterday",
+				QueueLabel:    "Ready when you are",
+				ActionText:    "Follow up with recruiter",
 			},
 			{
 				Application: model.Application{
@@ -417,17 +441,186 @@ func fallbackDashboardData() dashboardData {
 					Status:     model.StatusProspect,
 					NextAction: model.NextAction{Summary: "Tailor cover letter"},
 				},
-				Status:    "Drafting",
-				StatusKey: "drafting",
-				Updated:   "Apr 30",
+				Status:        "Prospect",
+				StatusKey:     "prospect",
+				PriorityLabel: "High",
+				Updated:       "Apr 30",
+				QueueLabel:    "High priority",
+				ActionText:    "Tailor cover letter",
 			},
 		},
 		NextActions: []dashboardNextAction{
-			{Text: "Prep system design notes for Northstar Systems."},
-			{Text: "Send recruiter follow-up for Atlas Cloud."},
-			{Text: "Attach tailored cover letter to Signal Works draft."},
+			{Text: "Prep system design notes for Northstar Systems.", Meta: "Interviewing", State: "Due today"},
+			{Text: "Send recruiter follow-up for Atlas Cloud.", Meta: "Applied", State: "Ready when you are"},
+			{Text: "Attach tailored cover letter to Signal Works draft.", Meta: "Prospect", State: "High priority"},
 		},
 	}
+}
+
+func dashboardQueue(applications []model.Application, now time.Time, limit int) []dashboardApplication {
+	candidates := make([]model.Application, 0, len(applications))
+	for _, app := range applications {
+		if isActiveStatus(app.Status) {
+			candidates = append(candidates, app)
+		}
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return dashboardApplicationLess(candidates[i], candidates[j], now)
+	})
+	if limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	items := make([]dashboardApplication, 0, len(candidates))
+	for _, app := range candidates {
+		items = append(items, dashboardApplication{
+			Application:   app,
+			Status:        statusLabel(app.Status),
+			StatusKey:     string(app.Status),
+			PriorityLabel: priorityLabel(app.Priority),
+			Updated:       shortDate(app.UpdatedAt),
+			NextActionDue: optionalDate(app.NextAction.Due),
+			QueueLabel:    dashboardQueueLabel(app, now),
+			ActionText:    dashboardActionText(app),
+		})
+	}
+	return items
+}
+
+func dashboardApplicationLess(left, right model.Application, now time.Time) bool {
+	if cmp := dashboardDueRank(left.NextAction.Due, now) - dashboardDueRank(right.NextAction.Due, now); cmp != 0 {
+		return cmp < 0
+	}
+	if cmp := dashboardStatusRank(left.Status) - dashboardStatusRank(right.Status); cmp != 0 {
+		return cmp < 0
+	}
+	if cmp := dashboardPriorityRank(left.Priority) - dashboardPriorityRank(right.Priority); cmp != 0 {
+		return cmp < 0
+	}
+	if !left.UpdatedAt.Equal(right.UpdatedAt) {
+		return left.UpdatedAt.After(right.UpdatedAt)
+	}
+	if strings.EqualFold(left.Company, right.Company) {
+		return strings.ToLower(left.Role) < strings.ToLower(right.Role)
+	}
+	return strings.ToLower(left.Company) < strings.ToLower(right.Company)
+}
+
+func dashboardNextActionLess(left, right model.Application, now time.Time) bool {
+	if cmp := dashboardDueRank(left.NextAction.Due, now) - dashboardDueRank(right.NextAction.Due, now); cmp != 0 {
+		return cmp < 0
+	}
+	if cmp := dashboardPriorityRank(left.Priority) - dashboardPriorityRank(right.Priority); cmp != 0 {
+		return cmp < 0
+	}
+	return dashboardApplicationLess(left, right, now)
+}
+
+func dashboardDueRank(due *time.Time, now time.Time) int {
+	if due == nil || due.IsZero() {
+		return 3
+	}
+	if due.Before(startOfDay(now)) {
+		return 0
+	}
+	if !due.After(endOfDay(now)) {
+		return 1
+	}
+	return 2
+}
+
+func dashboardStatusRank(status model.ApplicationStatus) int {
+	switch status {
+	case model.StatusOffer:
+		return 0
+	case model.StatusInterviewing:
+		return 1
+	case model.StatusApplied:
+		return 2
+	case model.StatusProspect:
+		return 3
+	default:
+		return 4
+	}
+}
+
+func dashboardPriorityRank(priority model.Priority) int {
+	switch priority {
+	case model.PriorityHigh:
+		return 0
+	case model.PriorityLow:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func dashboardQueueLabel(app model.Application, now time.Time) string {
+	if app.NextAction.Summary != "" {
+		return nextActionState(app.NextAction.Due, now)
+	}
+	switch app.Status {
+	case model.StatusProspect:
+		return "Choose next move"
+	case model.StatusApplied:
+		return "Add a follow-up"
+	case model.StatusInterviewing:
+		return "Prep the loop"
+	case model.StatusOffer:
+		return "Review decision"
+	default:
+		return "Set next action"
+	}
+}
+
+func dashboardActionText(app model.Application) string {
+	if app.NextAction.Summary != "" {
+		return app.NextAction.Summary
+	}
+	switch app.Status {
+	case model.StatusProspect:
+		return "Decide whether to apply."
+	case model.StatusApplied:
+		return "Add the next follow-up."
+	case model.StatusInterviewing:
+		return "Capture prep notes."
+	case model.StatusOffer:
+		return "Review offer details."
+	default:
+		return "Set a next action."
+	}
+}
+
+func nextActionMeta(app model.Application, now time.Time) string {
+	meta := statusLabel(app.Status)
+	if app.Priority != "" {
+		meta += " / " + priorityLabel(app.Priority)
+	}
+	if app.NextAction.Due != nil && !app.NextAction.Due.IsZero() && !sameDay(*app.NextAction.Due, now) {
+		meta += " / " + optionalDate(app.NextAction.Due)
+	}
+	return meta
+}
+
+func nextActionState(due *time.Time, now time.Time) string {
+	if due == nil || due.IsZero() {
+		return "Ready when you are"
+	}
+	if due.Before(startOfDay(now)) {
+		return "Overdue"
+	}
+	if !due.After(endOfDay(now)) {
+		return "Due today"
+	}
+	return "Due " + due.Format("Jan 2")
+}
+
+func applicationHref(app model.Application) string {
+	if app.ID == "" {
+		return ""
+	}
+	return "/applications/" + app.ID
 }
 
 func (s *Server) applicationsIndex(w http.ResponseWriter, r *http.Request) {
@@ -462,6 +655,9 @@ func (s *Server) applicationsIndex(w http.ResponseWriter, r *http.Request) {
 		Query:         query,
 		Status:        status,
 		StatusOptions: applicationStatusOptions(),
+		TotalCount:    len(applications),
+		ResultCount:   len(items),
+		HasFilters:    query != "" || status != "",
 	})
 }
 
@@ -1668,6 +1864,12 @@ func sameDay(a, b time.Time) bool {
 	ay, am, ad := a.Local().Date()
 	by, bm, bd := b.Local().Date()
 	return ay == by && am == bm && ad == bd
+}
+
+func startOfDay(value time.Time) time.Time {
+	local := value.Local()
+	year, month, day := local.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, local.Location())
 }
 
 func endOfDay(value time.Time) time.Time {

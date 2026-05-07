@@ -13,7 +13,7 @@
         <h1>JobHunt OS</h1>
       </div>
       <nav aria-label="Primary">
-        <a href="/">Dashboard</a>
+        <a href="/" aria-current="page">Dashboard</a>
         <a href="/applications">Applications</a>
         <a href="/documents">Documents</a>
         <a href="/contacts">Contacts</a>
@@ -23,61 +23,95 @@
     </header>
 
     <main>
-      <section class="summary" aria-label="Job hunt summary">
+      <section class="today-board" aria-labelledby="today-heading">
+        <div class="today-copy">
+          <p class="eyebrow">Today</p>
+          <h2 id="today-heading">What should I do today?</h2>
+        </div>
+        {{ if .NextActions }}
+        <div class="today-actions" aria-label="Next actions due today">
+          {{ range .NextActions }}
+          <article class="today-action">
+            <div>
+              <span class="queue-label">{{ .State }}</span>
+              <h3>{{ if .Href }}<a href="{{ .Href }}">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}</h3>
+              <p>{{ .Meta }}</p>
+            </div>
+          </article>
+          {{ end }}
+        </div>
+        {{ else }}
+        <div class="today-empty">
+          <h3>No next actions due today.</h3>
+          <p>Pick the most promising application and add one concrete follow-up.</p>
+          <div class="button-row">
+            <a class="button" href="/applications">Review applications</a>
+            <a class="button secondary" href="/applications/new">New application</a>
+          </div>
+        </div>
+        {{ end }}
+      </section>
+
+      <section class="summary dashboard-summary" aria-label="Job hunt summary">
         {{ range .Metrics }}
-        <article>
+        <a class="metric-card" href="{{ .Href }}">
           <span>{{ .Label }}</span>
           <strong>{{ .Value }}</strong>
-        </article>
+          <small>{{ .Action }}</small>
+        </a>
         {{ end }}
       </section>
 
       <section class="workspace">
-        <div class="panel">
+        <div class="panel queue-panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">Application pipeline</p>
-              <h2>Current focus</h2>
+              <p class="eyebrow">Prioritized queue</p>
+              <h2>Application pipeline</h2>
             </div>
             <a class="button" href="/applications/new">New application</a>
           </div>
 
-          <table>
-            <thead>
-              <tr>
-                <th>Company</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Next action</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{ range .Applications }}
-              <tr>
-                <td>{{ if .ID }}<a class="table-link" href="/applications/{{ .ID }}">{{ .Company }}</a>{{ else }}{{ .Company }}{{ end }}</td>
-                <td>{{ .Role }}</td>
-                <td><span class="status" data-status="{{ .StatusKey }}">{{ .Status }}</span></td>
-                <td>{{ .NextAction }}</td>
-                <td>{{ .Updated }}</td>
-              </tr>
-              {{ end }}
-            </tbody>
-          </table>
+          <ol class="work-queue">
+            {{ range .Applications }}
+            <li>
+              <article class="queue-item">
+                <div class="queue-main">
+                  <div class="queue-title">
+                    <h3>{{ if .ID }}<a class="table-link" href="/applications/{{ .ID }}">{{ .Company }}</a>{{ else }}{{ .Company }}{{ end }}</h3>
+                    <p>{{ .Role }}</p>
+                  </div>
+                  <p class="queue-action">{{ .ActionText }}</p>
+                  <div class="queue-meta">
+                    <span class="status" data-status="{{ .StatusKey }}">{{ .Status }}</span>
+                    {{ if .PriorityLabel }}<span>{{ .PriorityLabel }} priority</span>{{ end }}
+                    {{ if .NextActionDue }}<span>Due {{ .NextActionDue }}</span>{{ end }}
+                    {{ if .Updated }}<span>Updated {{ .Updated }}</span>{{ end }}
+                  </div>
+                </div>
+                <span class="queue-label">{{ .QueueLabel }}</span>
+              </article>
+            </li>
+            {{ else }}
+            <li class="queue-empty">
+              <div class="empty-panel">
+                <h3>No active applications yet.</h3>
+                <p>Create the first tracked role, then add the next action you want to take.</p>
+                <a class="button" href="/applications/new">New application</a>
+              </div>
+            </li>
+            {{ end }}
+          </ol>
         </div>
 
         <aside class="side-panel">
-          <p class="eyebrow">Today</p>
-          <h2>Next actions</h2>
-          {{ if .NextActions }}
-          <ul>
-            {{ range .NextActions }}
-            <li>{{ .Text }}</li>
-            {{ end }}
-          </ul>
-          {{ else }}
-          <p class="empty-state">No next actions queued.</p>
-          {{ end }}
+          <p class="eyebrow">Next useful move</p>
+          <h2>Keep momentum</h2>
+          <p class="empty-state">Use the queue to work the oldest due action first, then update the application with the next concrete step.</p>
+          <div class="side-actions">
+            <a class="button secondary" href="/follow-ups">Open follow-ups</a>
+            <a class="button secondary" href="/documents">Review documents</a>
+          </div>
         </aside>
       </section>
     </main>

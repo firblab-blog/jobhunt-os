@@ -14,7 +14,7 @@
       </div>
       <nav aria-label="Primary">
         <a href="/">Dashboard</a>
-        <a href="/applications">Applications</a>
+        <a href="/applications" aria-current="page">Applications</a>
         <a href="/documents">Documents</a>
         <a href="/contacts">Contacts</a>
         <a href="/follow-ups">Follow-ups</a>
@@ -23,35 +23,57 @@
     </header>
 
     <main>
-      <section class="detail-header">
-        <div>
-          <p class="eyebrow">Role</p>
-          <h2>{{ .Application.Role }}</h2>
+      <section class="opportunity-header">
+        <div class="opportunity-title">
+          <p class="eyebrow">Focused workspace</p>
+          <h2>{{ .Application.Company }}</h2>
+          <p>{{ .Application.Role }}</p>
+          <div class="opportunity-badges" aria-label="Application status and priority">
+            <span class="status" data-status="{{ .Application.Status }}">{{ .StatusLabel }}</span>
+            <span class="opportunity-priority" data-priority="{{ .Application.Priority }}">{{ .Priority }} priority</span>
+          </div>
         </div>
-        <span class="status" data-status="{{ .Application.Status }}">{{ .StatusLabel }}</span>
+
+        <div class="opportunity-meta" aria-label="Opportunity details">
+          <article>
+            <span>Location</span>
+            <strong>{{ if .Application.Location }}{{ .Application.Location }}{{ else }}Not set{{ end }}</strong>
+          </article>
+          <article>
+            <span>Source</span>
+            <strong>{{ if .Application.Source }}{{ .Application.Source }}{{ else }}Not set{{ end }}</strong>
+          </article>
+          <article>
+            <span>Posting</span>
+            <strong>{{ if .Application.PostingURL }}<a class="table-link" href="{{ .Application.PostingURL }}" target="_blank" rel="noreferrer">Open posting</a>{{ else }}Not set{{ end }}</strong>
+          </article>
+          <article>
+            <span>Updated</span>
+            <strong>{{ .Updated }}</strong>
+          </article>
+        </div>
       </section>
 
-      <section class="detail-grid">
-        <article>
-          <span>Priority</span>
-          <strong>{{ .Priority }}</strong>
-        </article>
-        <article>
-          <span>Source</span>
-          <strong>{{ if .Application.Source }}{{ .Application.Source }}{{ else }}Not set{{ end }}</strong>
-        </article>
-        <article>
-          <span>Original link</span>
-          <strong>{{ if .Application.PostingURL }}<a class="table-link" href="{{ .Application.PostingURL }}" target="_blank" rel="noreferrer">Open posting</a>{{ else }}Not set{{ end }}</strong>
-        </article>
-        <article>
-          <span>Location</span>
-          <strong>{{ if .Application.Location }}{{ .Application.Location }}{{ else }}Not set{{ end }}</strong>
-        </article>
-        <article>
-          <span>Updated</span>
-          <strong>{{ .Updated }}</strong>
-        </article>
+      <section class="next-action-card">
+        <div>
+          <p class="eyebrow">Next action</p>
+          {{ if .Application.NextAction.Summary }}
+          <h2>{{ .Application.NextAction.Summary }}</h2>
+          {{ else }}
+          <h2>No next action recorded</h2>
+          {{ end }}
+        </div>
+        <div class="next-action-controls">
+          <div class="next-action-meta">
+            <span class="status" data-status="{{ .Application.Status }}">{{ .StatusLabel }}</span>
+            {{ if .NextActionDue }}
+            <span>Due {{ .NextActionDue }}</span>
+            {{ else }}
+            <span>No due date</span>
+            {{ end }}
+          </div>
+          <a class="button secondary" href="#status-update">Update status</a>
+        </div>
       </section>
 
       <section class="workspace">
@@ -59,20 +81,24 @@
           <div class="panel-header">
             <div>
               <p class="eyebrow">Timeline</p>
-              <h2>Events and notes</h2>
+              <h2>Activity feed</h2>
+              <p class="activity-feed-subtitle">Latest activity first</p>
             </div>
           </div>
 
           {{ if .Events }}
-          <div class="timeline">
+          <div class="activity-feed">
             {{ range .Events }}
-            <article class="timeline-item">
-              <div>
-                <span class="timeline-type">{{ .EventTypeLabel }}</span>
+            <article class="activity-item">
+              <div class="activity-marker" aria-hidden="true"></div>
+              <div class="activity-content">
+                <div class="activity-meta">
+                  <time datetime="{{ .OccurredAt.Format "2006-01-02" }}">{{ .Occurred }}</time>
+                  <span class="timeline-type">{{ .EventTypeLabel }}</span>
+                </div>
                 <h3>{{ .Summary }}</h3>
                 {{ if .Notes }}<p>{{ .Notes }}</p>{{ end }}
               </div>
-              <time datetime="{{ .OccurredAt.Format "2006-01-02" }}">{{ .Occurred }}</time>
             </article>
             {{ end }}
           </div>
@@ -84,10 +110,12 @@
         </article>
 
         <aside class="side-stack">
-          <form class="side-panel detail-form" method="post" action="/applications/{{ .Application.ID }}/events" novalidate>
+          <form class="side-panel detail-form detail-side-panel" method="post" action="/applications/{{ .Application.ID }}/events" novalidate>
             {{ .CSRFToken }}
-            <p class="eyebrow">Add event</p>
-            <h2>Record note</h2>
+            <div class="side-panel-title">
+              <p class="eyebrow">Add event</p>
+              <h2>Record activity</h2>
+            </div>
 
             {{ with .EventForm.Errors.Get "form" }}
             <div class="form-alert" role="alert">{{ . }}</div>
@@ -95,7 +123,7 @@
 
             <label>
               <span>Type</span>
-              <select name="event_type" required aria-describedby="event-type-error">
+              <select name="event_type" required{{ with .EventForm.Errors.Get "event_type" }} aria-invalid="true" aria-describedby="event-type-error"{{ end }}>
                 {{ range .EventTypeOptions }}
                 <option value="{{ .Value }}" {{ if eq $.EventForm.Values.EventType .Value }}selected{{ end }}>{{ .Label }}</option>
                 {{ end }}
@@ -105,13 +133,13 @@
 
             <label>
               <span>Occurred date</span>
-              <input name="occurred_at" type="date" value="{{ .EventForm.Values.OccurredAt }}" required aria-describedby="occurred-at-error">
+              <input name="occurred_at" type="date" value="{{ .EventForm.Values.OccurredAt }}" required{{ with .EventForm.Errors.Get "occurred_at" }} aria-invalid="true" aria-describedby="occurred-at-error"{{ end }}>
               {{ with .EventForm.Errors.Get "occurred_at" }}<strong id="occurred-at-error">{{ . }}</strong>{{ end }}
             </label>
 
             <label>
               <span>Summary</span>
-              <input name="summary" value="{{ .EventForm.Values.Summary }}" required aria-describedby="summary-error">
+              <input name="summary" value="{{ .EventForm.Values.Summary }}" required{{ with .EventForm.Errors.Get "summary" }} aria-invalid="true" aria-describedby="summary-error"{{ end }}>
               {{ with .EventForm.Errors.Get "summary" }}<strong id="summary-error">{{ . }}</strong>{{ end }}
             </label>
 
@@ -123,15 +151,20 @@
             <button type="submit">Add event</button>
           </form>
 
-          <form class="side-panel detail-form" method="post" action="/applications/{{ .Application.ID }}/status" novalidate>
+          <form id="status-update" class="side-panel detail-form detail-side-panel" method="post" action="/applications/{{ .Application.ID }}/status" novalidate>
             {{ .CSRFToken }}
-            <p class="eyebrow">Status</p>
-            <h2>Update next action</h2>
-            {{ if .Application.NextAction.Summary }}
-            <p class="muted">{{ .Application.NextAction.Summary }}{{ if .NextActionDue }} - Due {{ .NextActionDue }}{{ end }}</p>
-            {{ else }}
-            <p class="empty-state">No next action recorded.</p>
-            {{ end }}
+            <div class="side-panel-title">
+              <p class="eyebrow">Status</p>
+              <h2>Update next action</h2>
+            </div>
+            <div class="current-next-action">
+              {{ if .Application.NextAction.Summary }}
+              <strong>{{ .Application.NextAction.Summary }}</strong>
+              <span>{{ if .NextActionDue }}Due {{ .NextActionDue }}{{ else }}No due date{{ end }}</span>
+              {{ else }}
+              <span>No next action recorded.</span>
+              {{ end }}
+            </div>
 
             {{ with .StatusForm.Errors.Get "form" }}
             <div class="form-alert" role="alert">{{ . }}</div>
@@ -139,7 +172,7 @@
 
             <label>
               <span>Status</span>
-              <select name="status" required aria-describedby="status-error">
+              <select name="status" required{{ with .StatusForm.Errors.Get "status" }} aria-invalid="true" aria-describedby="status-error"{{ end }}>
                 {{ range .StatusOptions }}
                 <option value="{{ .Value }}" {{ if eq $.StatusForm.Values.Status .Value }}selected{{ end }}>{{ .Label }}</option>
                 {{ end }}
@@ -154,17 +187,19 @@
 
             <label>
               <span>Next action due</span>
-              <input name="next_action_due" type="date" value="{{ .StatusForm.Values.NextActionDue }}" aria-describedby="next-action-due-error">
+              <input name="next_action_due" type="date" value="{{ .StatusForm.Values.NextActionDue }}"{{ with .StatusForm.Errors.Get "next_action_due" }} aria-invalid="true" aria-describedby="next-action-due-error"{{ end }}>
               {{ with .StatusForm.Errors.Get "next_action_due" }}<strong id="next-action-due-error">{{ . }}</strong>{{ end }}
             </label>
 
             <button type="submit">Update status</button>
           </form>
 
-          <form class="side-panel detail-form" method="post" action="/applications/{{ .Application.ID }}/documents" enctype="multipart/form-data" novalidate>
+          <form class="side-panel detail-form detail-side-panel" method="post" action="/applications/{{ .Application.ID }}/documents" enctype="multipart/form-data" novalidate>
             {{ .CSRFToken }}
-            <p class="eyebrow">Job posting</p>
-            <h2>Link and PDF</h2>
+            <div class="side-panel-title">
+              <p class="eyebrow">Job posting</p>
+              <h2>Link and PDF</h2>
+            </div>
 
             {{ with .PostingForm.Errors.Get "form" }}
             <div class="form-alert" role="alert">{{ . }}</div>
@@ -172,13 +207,13 @@
 
             <label>
               <span>Original link</span>
-              <input name="posting_url" type="url" value="{{ .PostingForm.Values.PostingURL }}" aria-describedby="posting-url-error">
+              <input name="posting_url" type="url" value="{{ .PostingForm.Values.PostingURL }}"{{ with .PostingForm.Errors.Get "posting_url" }} aria-invalid="true" aria-describedby="posting-url-error"{{ end }}>
               {{ with .PostingForm.Errors.Get "posting_url" }}<strong id="posting-url-error">{{ . }}</strong>{{ end }}
             </label>
 
             <label>
               <span>Posting PDF</span>
-              <input name="posting_pdf" type="file" accept="application/pdf,.pdf" aria-describedby="posting-pdf-error">
+              <input name="posting_pdf" type="file" accept="application/pdf,.pdf"{{ with .PostingForm.Errors.Get "posting_pdf" }} aria-invalid="true" aria-describedby="posting-pdf-error"{{ end }}>
               {{ with .PostingForm.Errors.Get "posting_pdf" }}<strong id="posting-pdf-error">{{ . }}</strong>{{ end }}
             </label>
 
@@ -202,9 +237,11 @@
             <button type="submit">Save posting</button>
           </form>
 
-          <section class="side-panel">
-            <p class="eyebrow">Notes</p>
-            <h2>Private notes</h2>
+          <section class="side-panel detail-side-panel">
+            <div class="side-panel-title">
+              <p class="eyebrow">Notes</p>
+              <h2>Private notes</h2>
+            </div>
             {{ if .Application.Notes }}
             <p class="notes">{{ .Application.Notes }}</p>
             {{ else }}

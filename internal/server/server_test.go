@@ -63,7 +63,7 @@ func TestHomeRendersDashboard(t *testing.T) {
 	}
 }
 
-func TestHomeRendersEmptyNextActions(t *testing.T) {
+func TestHomeRendersEmptyDashboardStates(t *testing.T) {
 	t.Parallel()
 
 	srv := New(nil).(*Server)
@@ -77,8 +77,113 @@ func TestHomeRendersEmptyNextActions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteTemplate() error = %v", err)
 	}
-	if got := body.String(); !strings.Contains(got, "No next actions queued.") {
+	got := body.String()
+	if !strings.Contains(got, "No next actions due today.") {
 		t.Fatalf("body does not contain empty next actions state")
+	}
+	if !strings.Contains(got, "No active applications yet.") {
+		t.Fatalf("body does not contain empty application state")
+	}
+}
+
+func TestHomeRendersDashboardFromStore(t *testing.T) {
+	t.Parallel()
+
+	due := time.Now()
+	appStore := &fakeApplicationStore{
+		applications: []model.Application{
+			{
+				ID:        "app_1",
+				Company:   "Northstar Systems",
+				Role:      "Senior Platform Engineer",
+				Status:    model.StatusApplied,
+				Priority:  model.PriorityHigh,
+				UpdatedAt: due,
+				NextAction: model.NextAction{
+					Summary: "Follow up with recruiter",
+					Due:     &due,
+				},
+			},
+		},
+	}
+
+	rec := requestWithStore(http.MethodGet, "/", nil, appStore)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"Follow up with recruiter for Northstar Systems.",
+		`href="/applications/app_1"`,
+		"High priority",
+		"Due today",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestDashboardQueuePrioritizesActiveWork(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	overdue := now.AddDate(0, 0, -1)
+	future := now.AddDate(0, 0, 3)
+	items := dashboardQueue([]model.Application{
+		{
+			ID:        "app_recent",
+			Company:   "Recent Co",
+			Role:      "Platform Engineer",
+			Status:    model.StatusApplied,
+			Priority:  model.PriorityHigh,
+			UpdatedAt: now,
+			NextAction: model.NextAction{
+				Summary: "Send note",
+			},
+		},
+		{
+			ID:        "app_overdue",
+			Company:   "Overdue Co",
+			Role:      "Staff Engineer",
+			Status:    model.StatusProspect,
+			Priority:  model.PriorityLow,
+			UpdatedAt: now.Add(-time.Hour),
+			NextAction: model.NextAction{
+				Summary: "Finish draft",
+				Due:     &overdue,
+			},
+		},
+		{
+			ID:        "app_future",
+			Company:   "Future Co",
+			Role:      "Infra Lead",
+			Status:    model.StatusInterviewing,
+			Priority:  model.PriorityNormal,
+			UpdatedAt: now.Add(-2 * time.Hour),
+			NextAction: model.NextAction{
+				Summary: "Prep interview",
+				Due:     &future,
+			},
+		},
+		{
+			ID:        "app_archived",
+			Company:   "Archived Co",
+			Role:      "Developer",
+			Status:    model.StatusArchived,
+			Priority:  model.PriorityHigh,
+			UpdatedAt: now.Add(time.Hour),
+		},
+	}, now, 5)
+
+	if len(items) != 3 {
+		t.Fatalf("dashboardQueue() len = %d, want 3", len(items))
+	}
+	if got := items[0].ID; got != "app_overdue" {
+		t.Fatalf("first queue item = %q, want app_overdue", got)
+	}
+	if got := items[0].QueueLabel; got != "Overdue" {
+		t.Fatalf("first queue label = %q, want Overdue", got)
 	}
 }
 

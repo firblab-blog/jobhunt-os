@@ -14,7 +14,7 @@
       </div>
       <nav aria-label="Primary">
         <a href="/">Dashboard</a>
-        <a href="/applications">Applications</a>
+        <a href="/applications" aria-current="page">Applications</a>
         <a href="/documents">Documents</a>
         <a href="/contacts">Contacts</a>
         <a href="/follow-ups">Follow-ups</a>
@@ -23,19 +23,20 @@
     </header>
 
     <main>
-      <section class="panel">
+      <section class="panel applications-panel">
         <div class="panel-header">
           <div>
             <p class="eyebrow">Tracked opportunities</p>
             <h2>Current applications</h2>
+            <p class="applications-count">{{ .ResultCount }} shown of {{ .TotalCount }} tracked</p>
           </div>
           <a class="button" href="/applications/new">New application</a>
         </div>
 
-        <form class="filter-form" method="get" action="/applications">
-          <label>
+        <form class="filter-form applications-filter" method="get" action="/applications">
+          <label class="applications-search">
             <span>Search</span>
-            <input name="q" value="{{ .Query }}" autocomplete="off">
+            <input name="q" value="{{ .Query }}" autocomplete="off" placeholder="Company, role, source, notes, or next action">
           </label>
           <label>
             <span>Status</span>
@@ -46,46 +47,69 @@
               {{ end }}
             </select>
           </label>
-          <button type="submit">Filter</button>
+          <div class="applications-filter-actions">
+            <button class="secondary" type="submit">Filter</button>
+            {{ if .HasFilters }}<a class="button secondary" href="/applications">Clear</a>{{ end }}
+          </div>
         </form>
 
         {{ if .Applications }}
-        <table>
-          <thead>
-            <tr>
-              <th>Company</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Priority</th>
-              <th>Next action</th>
-              <th>Updated</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{ range .Applications }}
-            <tr>
-              <td><a class="table-link" href="/applications/{{ .ID }}">{{ .Company }}</a></td>
-              <td>{{ .Role }}</td>
-              <td><span class="status" data-status="{{ .Status }}">{{ .StatusLabel }}</span></td>
-              <td>{{ .PriorityLabel }}</td>
-              <td>
-                {{ if .NextAction.Summary }}
-                <span>{{ .NextAction.Summary }}</span>
-                {{ if .NextActionDue }}<small>Due {{ .NextActionDue }}</small>{{ end }}
-                {{ else }}
-                <span class="muted">None</span>
-                {{ end }}
-              </td>
-              <td>{{ .Updated }}</td>
-            </tr>
-            {{ end }}
-          </tbody>
-        </table>
+        <div class="applications-table-wrap">
+          <table class="applications-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Priority</th>
+                <th>Next action</th>
+                <th>Due date</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{ range .Applications }}
+              <tr>
+                <td class="applications-company-cell" data-label="Company">
+                  <a class="table-link applications-company-link" href="/applications/{{ .ID }}">{{ .Company }}</a>
+                  {{ if or .Location .Source }}
+                  <small>{{ if .Location }}{{ .Location }}{{ end }}{{ if and .Location .Source }} / {{ end }}{{ if .Source }}{{ .Source }}{{ end }}</small>
+                  {{ end }}
+                </td>
+                <td class="applications-role-cell" data-label="Role">{{ .Role }}</td>
+                <td data-label="Status"><span class="status" data-status="{{ .Status }}">{{ .StatusLabel }}</span></td>
+                <td data-label="Priority"><span class="applications-priority" data-priority="{{ .Priority }}">{{ .PriorityLabel }}</span></td>
+                <td class="applications-next-cell" data-label="Next action">
+                  {{ if .NextAction.Summary }}
+                  <span>{{ .NextAction.Summary }}</span>
+                  {{ else }}
+                  <span class="muted">No next action set</span>
+                  {{ end }}
+                </td>
+                <td data-label="Due date">
+                  {{ if .NextActionDue }}
+                  {{ .NextActionDue }}
+                  {{ else }}
+                  <span class="muted">Not set</span>
+                  {{ end }}
+                </td>
+                <td data-label="Updated">{{ .Updated }}</td>
+              </tr>
+              {{ end }}
+            </tbody>
+          </table>
+        </div>
         {{ else }}
         <div class="empty-panel">
+          {{ if .HasFilters }}
+          <h2>No matches</h2>
+          <p>No applications match the current filters. Clear the filters or try a broader search.</p>
+          <a class="button secondary" href="/applications">Clear filters</a>
+          {{ else }}
           <h2>No applications yet</h2>
-          <p>No applications match the current view. Add the first opportunity or clear the filters.</p>
+          <p>Add the first opportunity to start working this page as your main pipeline table.</p>
           <a class="button" href="/applications/new">New application</a>
+          {{ end }}
         </div>
         {{ end }}
       </section>

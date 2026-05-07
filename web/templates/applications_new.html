@@ -14,7 +14,7 @@
       </div>
       <nav aria-label="Primary">
         <a href="/">Dashboard</a>
-        <a href="/applications">Applications</a>
+        <a href="/applications" aria-current="page">Applications</a>
         <a href="/documents">Documents</a>
         <a href="/contacts">Contacts</a>
         <a href="/follow-ups">Follow-ups</a>
@@ -41,19 +41,19 @@
         <div class="form-grid">
           <label>
             <span>Company</span>
-            <input name="company" value="{{ .Values.Company }}" autocomplete="organization" required aria-describedby="company-error">
+            <input name="company" value="{{ .Values.Company }}" autocomplete="organization" required{{ with .Errors.Get "company" }} aria-invalid="true" aria-describedby="company-error"{{ end }}>
             {{ with .Errors.Get "company" }}<strong id="company-error">{{ . }}</strong>{{ end }}
           </label>
 
           <label>
             <span>Role</span>
-            <input name="role" value="{{ .Values.Role }}" autocomplete="organization-title" required aria-describedby="role-error">
+            <input name="role" value="{{ .Values.Role }}" autocomplete="organization-title" required{{ with .Errors.Get "role" }} aria-invalid="true" aria-describedby="role-error"{{ end }}>
             {{ with .Errors.Get "role" }}<strong id="role-error">{{ . }}</strong>{{ end }}
           </label>
 
           <label>
             <span>Status</span>
-            <select name="status" required aria-describedby="status-error">
+            <select name="status" required{{ with .Errors.Get "status" }} aria-invalid="true" aria-describedby="status-error"{{ end }}>
               {{ range .StatusOptions }}
               <option value="{{ .Value }}" {{ if eq $.Values.Status .Value }}selected{{ end }}>{{ .Label }}</option>
               {{ end }}
@@ -63,7 +63,7 @@
 
           <label>
             <span>Priority</span>
-            <select name="priority" required aria-describedby="priority-error">
+            <select name="priority" required{{ with .Errors.Get "priority" }} aria-invalid="true" aria-describedby="priority-error"{{ end }}>
               {{ range .PriorityOptions }}
               <option value="{{ .Value }}" {{ if eq $.Values.Priority .Value }}selected{{ end }}>{{ .Label }}</option>
               {{ end }}
@@ -78,13 +78,13 @@
 
           <label>
             <span>Original link</span>
-            <input name="posting_url" type="url" value="{{ .Values.PostingURL }}" autocomplete="url" aria-describedby="posting-url-error">
+            <input name="posting_url" type="url" value="{{ .Values.PostingURL }}" autocomplete="url"{{ with .Errors.Get "posting_url" }} aria-invalid="true" aria-describedby="posting-url-error"{{ end }}>
             {{ with .Errors.Get "posting_url" }}<strong id="posting-url-error">{{ . }}</strong>{{ end }}
           </label>
 
           <label>
             <span>Posting PDF</span>
-            <input name="posting_pdf" type="file" accept="application/pdf,.pdf" aria-describedby="posting-pdf-error">
+            <input name="posting_pdf" type="file" accept="application/pdf,.pdf"{{ with .Errors.Get "posting_pdf" }} aria-invalid="true" aria-describedby="posting-pdf-error"{{ end }}>
             {{ with .Errors.Get "posting_pdf" }}<strong id="posting-pdf-error">{{ . }}</strong>{{ end }}
           </label>
 
@@ -100,7 +100,7 @@
 
           <label>
             <span>Next action due</span>
-            <input name="next_action_due" type="date" value="{{ .Values.NextActionDue }}" aria-describedby="next-action-due-error">
+            <input name="next_action_due" type="date" value="{{ .Values.NextActionDue }}"{{ with .Errors.Get "next_action_due" }} aria-invalid="true" aria-describedby="next-action-due-error"{{ end }}>
             {{ with .Errors.Get "next_action_due" }}<strong id="next-action-due-error">{{ . }}</strong>{{ end }}
           </label>
 

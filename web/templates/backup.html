@@ -18,23 +18,67 @@
         <a href="/documents">Documents</a>
         <a href="/contacts">Contacts</a>
         <a href="/follow-ups">Follow-ups</a>
-        <a href="/backup">Backup</a>
+        <a href="/backup" aria-current="page">Backup</a>
       </nav>
     </header>
 
     <main>
-      <section class="panel">
+      <section class="panel utility-panel backup-panel">
         <div class="panel-header">
           <div>
             <p class="eyebrow">Export</p>
             <h2>Portable JSON snapshot</h2>
+            <p class="utility-subtitle">Save a point-in-time copy of the job-hunt records stored by this app.</p>
           </div>
-          <a class="button" href="/export.json">Download JSON</a>
+          <a class="button" href="/export.json">Download export</a>
         </div>
 
-        <div class="detail-body">
-          <p>The JSON export includes applications, timeline events, document records, and contacts. The SQLite database remains in the configured local data directory.</p>
-          <p class="meta-line">Page generated {{ .GeneratedAt }}</p>
+        <div class="utility-overview backup-overview">
+          <div class="backup-copy">
+            <p class="backup-lede">The export is a readable JSON snapshot for review, migration, or safekeeping. Downloading it does not change the local database.</p>
+            <div class="backup-facts" aria-label="Export details">
+              <article>
+                <span>Generated</span>
+                <strong>{{ .GeneratedAt }}</strong>
+              </article>
+              <article>
+                <span>Format</span>
+                <strong>Indented JSON</strong>
+              </article>
+              <article>
+                <span>File</span>
+                <strong>jobhunt-os-export.json</strong>
+              </article>
+            </div>
+          </div>
+
+          <div class="backup-action">
+            <span class="support-pill">JSON export</span>
+            <a class="button" href="/export.json">Download export</a>
+          </div>
+        </div>
+
+        <div class="backup-contents" aria-label="Export contents">
+          <article>
+            <span>Applications</span>
+            <strong>Companies, roles, statuses, priorities, notes, and next actions.</strong>
+          </article>
+          <article>
+            <span>Timeline</span>
+            <strong>Events nested with each application, including follow-up history.</strong>
+          </article>
+          <article>
+            <span>Documents</span>
+            <strong>Library records and stored file references tracked by the app.</strong>
+          </article>
+          <article>
+            <span>Contacts</span>
+            <strong>Saved people, organizations, roles, contact details, and notes.</strong>
+          </article>
+        </div>
+
+        <div class="detail-body utility-note">
+          <p>The SQLite database and attached files remain in the configured local data directory. This page only creates a downloadable JSON response.</p>
         </div>
       </section>
     </main>
