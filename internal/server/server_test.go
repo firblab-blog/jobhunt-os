@@ -877,7 +877,7 @@ func TestDocumentsShowEmbedsInlinePDF(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"Document preview",
+		`<a class="brand-link" href="/" aria-label="JobHunt OS dashboard">JobHunt OS</a>`,
 		`src="/documents/doc_1/download"`,
 		`href="/documents/doc_1/download"`,
 		"Platform resume",
