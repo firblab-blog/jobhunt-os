@@ -71,6 +71,15 @@ h3 {
   color: var(--text-strong);
 }
 
+.brand-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.brand-link:hover {
+  color: var(--accent-strong);
+}
+
 a {
   color: var(--accent-strong);
 }
