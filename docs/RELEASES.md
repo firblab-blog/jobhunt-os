@@ -1,8 +1,8 @@
 # Releases
 
-JobHunt OS uses container images as the release artifact for the self-hosted
-Docker Compose install. There is no management CLI, Helm chart, or public
-binary release channel yet.
+JobHunt OS uses container images and GitHub Releases as the release artifacts
+for the self-hosted Docker Compose install. There is no management CLI, Helm
+chart, or public binary release channel yet.
 
 ## Image Tags
 
@@ -35,7 +35,8 @@ The lightweight release process is:
 2. Let CI publish a `sha-<shortsha>` image for that commit.
 3. Create and push an annotated Git tag such as `v0.1.0`.
 4. Let CI publish the matching `vX.Y.Z`, `latest`, and `sha-<shortsha>` images.
-5. Sanity-check the published image with Docker Compose before announcing it.
+5. Let CI mirror the Git tag to GitHub and create the matching GitHub Release.
+6. Sanity-check the published image with Docker Compose before announcing it.
 
 If a release has known upgrade notes, document them before or alongside the tag.
 
