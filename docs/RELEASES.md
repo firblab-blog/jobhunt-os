@@ -14,12 +14,12 @@ ghcr.io/firblab-blog/jobhunt-os
 
 Tags have these meanings:
 
-- `latest`: the newest image published from `main`. This is the default in the
-  provided Compose file and is convenient for small personal installs.
+- `latest`: the newest versioned release image. This is the default in the
+  provided Compose file and tracks the most recent `vX.Y.Z` release.
 - `vX.Y.Z`: a named release tag, for example `v0.1.0`. Use this when you want
   explicit upgrades.
-- `sha-<shortsha>`: an image for a specific commit on `main`. Use this when you
-  need an exact build for testing, rollback, or support.
+- `sha-<shortsha>`: an image for a specific commit. Use this when you need an
+  exact build for testing, rollback, or support.
 
 Versioned releases use the Git tag shape:
 
@@ -32,9 +32,9 @@ vX.Y.Z
 The lightweight release process is:
 
 1. Merge the intended release state to `main`.
-2. Let CI publish `latest` and `sha-<shortsha>` images for that commit.
+2. Let CI publish a `sha-<shortsha>` image for that commit.
 3. Create and push an annotated Git tag such as `v0.1.0`.
-4. Let CI publish the matching `vX.Y.Z` image.
+4. Let CI publish the matching `vX.Y.Z`, `latest`, and `sha-<shortsha>` images.
 5. Sanity-check the published image with Docker Compose before announcing it.
 
 If a release has known upgrade notes, document them before or alongside the tag.
@@ -53,5 +53,5 @@ This makes upgrades deliberate: back up `./data`, edit the tag, pull the image,
 and restart with Docker Compose.
 
 Using `latest` is acceptable for casual personal installs where automatic
-movement to the newest `main` image is welcome. Use `sha-<shortsha>` when you
+movement to the newest released image is welcome. Use `sha-<shortsha>` when you
 need an exact commit rather than a release line.

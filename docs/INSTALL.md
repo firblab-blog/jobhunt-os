@@ -70,8 +70,8 @@ The Compose file uses the public container image:
 ghcr.io/firblab-blog/jobhunt-os:latest
 ```
 
-The `latest` tag is the default install path for now. When versioned tags are
-published, users who want slower, explicit upgrades should pin the image tag in
+The `latest` tag is the default install path and tracks the newest versioned
+release. Users who want slower, explicit upgrades should pin the image tag in
 `docker-compose.yml` instead of tracking `latest`.
 
 ## Common Commands

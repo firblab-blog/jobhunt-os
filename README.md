@@ -52,8 +52,9 @@ ghcr.io/firblab-blog/jobhunt-os:vX.Y.Z
 ghcr.io/firblab-blog/jobhunt-os:sha-<shortsha>
 ```
 
-The provided Compose file uses `latest`. When available, pin a versioned or
-commit tag in `docker-compose.yml` when you want more explicit upgrades.
+The provided Compose file uses `latest`, which tracks the newest versioned
+release. Pin a versioned or commit tag in `docker-compose.yml` when you want
+more explicit upgrades.
 
 ## Data Directory
 

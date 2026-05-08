@@ -108,15 +108,14 @@ ghcr:publish:
 
       if [ -n "${CI_COMMIT_TAG}" ]; then
         GHCR_IMAGE_VERSION="${GHCR_IMAGE}:${CI_COMMIT_TAG}"
-        docker build --pull -t "${GHCR_IMAGE_VERSION}" -t "${GHCR_IMAGE_SHA}" .
+        docker build --pull -t "${GHCR_IMAGE_VERSION}" -t "${GHCR_IMAGE}:latest" -t "${GHCR_IMAGE_SHA}" .
         docker push "${GHCR_IMAGE_VERSION}"
+        docker push "${GHCR_IMAGE}:latest"
         docker push "${GHCR_IMAGE_SHA}"
       else
         echo "${CI_REGISTRY_PASSWORD}" | docker login "${CI_REGISTRY}" --username "${CI_REGISTRY_USER}" --password-stdin
         docker pull "${JOBHUNT_OS_IMAGE_COMMIT}"
-        docker tag "${JOBHUNT_OS_IMAGE_COMMIT}" "${GHCR_IMAGE}:latest"
         docker tag "${JOBHUNT_OS_IMAGE_COMMIT}" "${GHCR_IMAGE_SHA}"
-        docker push "${GHCR_IMAGE}:latest"
         docker push "${GHCR_IMAGE_SHA}"
       fi
   rules:

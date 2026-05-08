@@ -41,8 +41,8 @@ The default Compose file uses:
 ghcr.io/firblab-blog/jobhunt-os:latest
 ```
 
-Using `latest` means `docker compose pull` will move you to the newest published
-image for the default install path.
+Using `latest` means `docker compose pull` will move you to the newest
+versioned release image for the default install path.
 
 When versioned image tags are available, you can pin the image in
 `docker-compose.yml`:
