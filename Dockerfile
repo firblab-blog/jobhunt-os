@@ -13,6 +13,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldfl
 
 FROM scratch
 
+LABEL org.opencontainers.image.source="https://github.com/firblab-blog/jobhunt-os"
+LABEL org.opencontainers.image.description="Local-first, self-hosted job hunt command center"
+LABEL org.opencontainers.image.licenses="MIT"
+
 COPY --from=build /out/jobhunt-os /jobhunt-os
 
 USER 65532:65532
