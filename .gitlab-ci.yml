@@ -18,6 +18,7 @@ default:
 variables:
   JOBHUNT_OS_IMAGE_COMMIT: "${CI_REGISTRY_IMAGE}/jobhunt-os:${CI_COMMIT_SHORT_SHA}"
   JOBHUNT_OS_IMAGE_LATEST: "${CI_REGISTRY_IMAGE}/jobhunt-os:latest"
+  GHCR_IMAGE: "ghcr.io/firblab-blog/jobhunt-os"
   DOCKER_HOST: tcp://docker:2375
   DOCKER_TLS_CERTDIR: ""
 
@@ -25,6 +26,7 @@ variables:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
 
 go:test:
   stage: validate
@@ -76,6 +78,45 @@ docker:publish:
     - docker push "${JOBHUNT_OS_IMAGE_LATEST}"
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+ghcr:publish:
+  stage: publish
+  image: docker:28.0.1
+  allow_failure: true
+  services:
+    - name: docker:28.0.1-dind
+      command: ["--tls=false"]
+  needs:
+    - job: go:test
+    - job: sonarqube:analyze
+      optional: true
+    - job: docker:publish
+      optional: true
+  before_script: []
+  script:
+    - |
+      set -e
+
+      GHCR_IMAGE_SHA="${GHCR_IMAGE}:sha-${CI_COMMIT_SHORT_SHA}"
+
+      echo "${GHCR_TOKEN}" | docker login ghcr.io --username "${GHCR_USERNAME}" --password-stdin
+
+      if [ -n "${CI_COMMIT_TAG}" ]; then
+        GHCR_IMAGE_VERSION="${GHCR_IMAGE}:${CI_COMMIT_TAG}"
+        docker build --pull -t "${GHCR_IMAGE_VERSION}" -t "${GHCR_IMAGE_SHA}" .
+        docker push "${GHCR_IMAGE_VERSION}"
+        docker push "${GHCR_IMAGE_SHA}"
+      else
+        echo "${CI_REGISTRY_PASSWORD}" | docker login "${CI_REGISTRY}" --username "${CI_REGISTRY_USER}" --password-stdin
+        docker pull "${JOBHUNT_OS_IMAGE_COMMIT}"
+        docker tag "${JOBHUNT_OS_IMAGE_COMMIT}" "${GHCR_IMAGE}:latest"
+        docker tag "${JOBHUNT_OS_IMAGE_COMMIT}" "${GHCR_IMAGE_SHA}"
+        docker push "${GHCR_IMAGE}:latest"
+        docker push "${GHCR_IMAGE_SHA}"
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $GHCR_USERNAME && $GHCR_TOKEN
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $GHCR_USERNAME && $GHCR_TOKEN
 
 deploy:prepare-vars:
   stage: deploy

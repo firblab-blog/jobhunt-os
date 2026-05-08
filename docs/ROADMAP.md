@@ -26,10 +26,11 @@
 
 ## Phase 3: Installability
 
-- Single-binary releases for macOS, Linux, and Windows.
-- Docker image for users who prefer containers.
+- Docker Compose as the canonical self-hosted install path.
+- Public container image with `latest`, versioned, and `sha-<shortsha>` tags.
 - Clear data directory conventions.
 - First-run setup page.
+- Optional binary releases later if they prove useful.
 
 ## Phase 4: Optional Automation
 

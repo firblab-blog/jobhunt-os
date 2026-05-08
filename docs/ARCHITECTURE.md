@@ -7,7 +7,7 @@ JobHunt OS should remain local-first, portable, and dependency-minimized.
 - Private by default: user data lives on the user's machine unless they explicitly export or sync it.
 - Manual first: the core product should work well without email automation, scraping, AI, or background agents.
 - Small trusted base: prefer the Go standard library and explicit code over broad frameworks.
-- Portable install: one binary plus a local data directory should be enough for most users.
+- Portable install: Docker Compose with the public container image and a local data directory is the canonical end-user path today; direct source or binary usage can remain a local or future option.
 - Escape hatch: import and export must be first-class so users never feel trapped.
 
 ## Proposed Shape
