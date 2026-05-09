@@ -50,8 +50,7 @@ func TestHomeRendersDashboard(t *testing.T) {
 		`href="/applications"`,
 		`href="/documents"`,
 		`href="/contacts"`,
-		`href="/follow-ups"`,
-		`href="/backup"`,
+		`href="/settings"`,
 		`href="/applications/new"`,
 		`data-status="interviewing"`,
 		"Pipeline flow",
@@ -213,15 +212,15 @@ func TestThemeUpdateSetsCookieAndRedirects(t *testing.T) {
 	}
 }
 
-func TestThemeControlEscapesReturnToWithMultipleQueryParams(t *testing.T) {
+func TestSettingsThemeControlEscapesReturnTo(t *testing.T) {
 	t.Parallel()
 
-	rec := requestWithStore(http.MethodGet, "/applications?q=atlas&status=applied", nil, &fakeApplicationStore{})
+	rec := requestWithStore(http.MethodGet, "/settings", nil, &fakeApplicationStore{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	escapedReturnTo := url.QueryEscape("/applications?q=atlas&status=applied")
+	escapedReturnTo := url.QueryEscape("/settings")
 	body := rec.Body.String()
 	for _, theme := range []string{themeSystem, themeLight, themeDark} {
 		want := `/theme?theme=` + theme + `&amp;return_to=` + escapedReturnTo
@@ -736,10 +735,9 @@ func TestSupportRoutesRenderPages(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]string{
-		"/documents":  "Documents",
-		"/contacts":   "Contacts",
-		"/follow-ups": "Follow-ups",
-		"/backup":     "Backup",
+		"/documents": "Documents",
+		"/contacts":  "Contacts",
+		"/settings":  "Settings",
 	}
 	for target, want := range tests {
 		rec := requestWithStore(http.MethodGet, target, nil, &fakeApplicationStore{})
@@ -750,6 +748,32 @@ func TestSupportRoutesRenderPages(t *testing.T) {
 		if body := rec.Body.String(); !strings.Contains(body, want) {
 			t.Fatalf("%s body does not contain %q", target, want)
 		}
+	}
+}
+
+func TestBackupRedirectsToSettings(t *testing.T) {
+	t.Parallel()
+
+	rec := requestWithStore(http.MethodGet, "/backup", nil, &fakeApplicationStore{})
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if location := rec.Header().Get("Location"); location != "/settings" {
+		t.Fatalf("Location = %q, want /settings", location)
+	}
+}
+
+func TestFollowUpsRedirectsToApplicationsNextActions(t *testing.T) {
+	t.Parallel()
+
+	rec := requestWithStore(http.MethodGet, "/follow-ups", nil, &fakeApplicationStore{})
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if location := rec.Header().Get("Location"); location != "/applications#next-actions" {
+		t.Fatalf("Location = %q, want /applications#next-actions", location)
 	}
 }
 
@@ -779,6 +803,8 @@ func TestApplicationsIndexRendersList(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
+		"Application work queue",
+		"1 queued action",
 		"Northstar Systems",
 		"Senior Platform Engineer",
 		"Interviewing",
@@ -1154,24 +1180,6 @@ func TestContactsCreateValidRedirects(t *testing.T) {
 	}
 	if len(appStore.createdContacts) != 1 {
 		t.Fatalf("createdContacts len = %d, want 1", len(appStore.createdContacts))
-	}
-}
-
-func TestFollowUpsRenderNextActions(t *testing.T) {
-	t.Parallel()
-
-	rec := requestWithStore(http.MethodGet, "/follow-ups", nil, &fakeApplicationStore{
-		applications: []model.Application{testApplication()},
-	})
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	body := rec.Body.String()
-	for _, want := range []string{"Follow up with recruiter", "Northstar Systems", `href="/applications/app_1"`} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("body does not contain %q", want)
-		}
 	}
 }
 

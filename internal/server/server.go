@@ -163,14 +163,17 @@ type dashboardNextAction struct {
 }
 
 type applicationsIndexData struct {
-	Theme         pageTheme
-	Applications  []applicationListItem
-	Query         string
-	Status        string
-	StatusOptions []selectOption
-	TotalCount    int
-	ResultCount   int
-	HasFilters    bool
+	Theme              pageTheme
+	Applications       []applicationListItem
+	NextActions        []followUpItem
+	NextActionCount    int
+	Query              string
+	Status             string
+	StatusOptions      []selectOption
+	TotalCount         int
+	ResultCount        int
+	HasFilters         bool
+	HasMoreNextActions bool
 }
 
 type applicationsFlowData struct {
@@ -384,11 +387,6 @@ type contactFormValues struct {
 	Notes        string
 }
 
-type followUpsIndexData struct {
-	Theme pageTheme
-	Items []followUpItem
-}
-
 type followUpItem struct {
 	ID          string
 	Company     string
@@ -399,7 +397,7 @@ type followUpItem struct {
 	Due         string
 }
 
-type backupData struct {
+type settingsData struct {
 	Theme       pageTheme
 	GeneratedAt string
 }
@@ -466,8 +464,9 @@ func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler 
 	s.mux.HandleFunc("GET /documents/{id}/download", s.documentsDownload)
 	s.mux.HandleFunc("GET /contacts", s.contactsIndex)
 	s.mux.HandleFunc("POST /contacts", s.contactsCreate)
-	s.mux.HandleFunc("GET /follow-ups", s.followUpsIndex)
-	s.mux.HandleFunc("GET /backup", s.backupIndex)
+	s.mux.HandleFunc("GET /follow-ups", s.followUpsRedirect)
+	s.mux.HandleFunc("GET /settings", s.settingsIndex)
+	s.mux.HandleFunc("GET /backup", s.backupRedirect)
 	s.mux.HandleFunc("GET /export.json", s.exportJSON)
 
 	return s
@@ -593,7 +592,7 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 	return dashboardData{
 		Metrics: []dashboardMetric{
 			{Label: "Active applications", Value: itoa(active), Action: "Work the queue", Href: "/applications"},
-			{Label: "Need follow-up", Value: itoa(needFollowUp), Action: "Clear today", Href: "/follow-ups"},
+			{Label: "Need follow-up", Value: itoa(needFollowUp), Action: "Clear today", Href: "/applications#next-actions"},
 			{Label: "Interview loops", Value: itoa(interviews), Action: "Prep next", Href: "/applications?status=interviewing"},
 			{Label: "Documents", Value: itoa(documentCount), Action: "Review library", Href: "/documents"},
 		},
@@ -608,7 +607,7 @@ func fallbackDashboardData() dashboardData {
 	return dashboardData{
 		Metrics: []dashboardMetric{
 			{Label: "Active applications", Value: "12", Action: "Work the queue", Href: "/applications"},
-			{Label: "Need follow-up", Value: "3", Action: "Clear today", Href: "/follow-ups"},
+			{Label: "Need follow-up", Value: "3", Action: "Clear today", Href: "/applications#next-actions"},
 			{Label: "Interview loops", Value: "2", Action: "Prep next", Href: "/applications?status=interviewing"},
 			{Label: "Documents", Value: "5", Action: "Review library", Href: "/documents"},
 		},
@@ -975,7 +974,7 @@ func dashboardPipelinePulseGroupDefinitions() []dashboardPipelinePulseGroupDefin
 func dashboardPipelinePulseSignals(stats dashboardStats, documentCount int, dueFollowUps int, interviewLoops int) []dashboardPipelinePulseSignal {
 	return []dashboardPipelinePulseSignal{
 		{Key: "active_applications", Label: "Active applications", Count: stats.ActiveApplications, Href: "/applications"},
-		{Key: "due_follow_ups", Label: "Due follow-ups", Count: dueFollowUps, Href: "/follow-ups"},
+		{Key: "due_follow_ups", Label: "Due follow-ups", Count: dueFollowUps, Href: "/applications#next-actions"},
 		{Key: "interview_loops", Label: "Interview loops", Count: interviewLoops, Href: "/applications?status=interviewing"},
 		{Key: "documents", Label: "Documents", Count: documentCount, Href: "/documents"},
 		{Key: "stale_opportunities", Label: "Stale opportunities", Count: stats.StaleActiveApplications, Href: "/applications"},
@@ -1149,6 +1148,11 @@ func (s *Server) applicationsIndex(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	filtered := filterApplications(applications, query, status)
+	nextActions := followUpItems(applications)
+	visibleNextActions := nextActions
+	if len(visibleNextActions) > 5 {
+		visibleNextActions = visibleNextActions[:5]
+	}
 
 	items := make([]applicationListItem, 0, len(filtered))
 	for _, app := range filtered {
@@ -1162,13 +1166,16 @@ func (s *Server) applicationsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, r, "applications_index.html", applicationsIndexData{
-		Applications:  items,
-		Query:         query,
-		Status:        status,
-		StatusOptions: applicationStatusFilterOptions(),
-		TotalCount:    len(applications),
-		ResultCount:   len(items),
-		HasFilters:    query != "" || status != "",
+		Applications:       items,
+		NextActions:        visibleNextActions,
+		NextActionCount:    len(nextActions),
+		Query:              query,
+		Status:             status,
+		StatusOptions:      applicationStatusFilterOptions(),
+		TotalCount:         len(applications),
+		ResultCount:        len(items),
+		HasFilters:         query != "" || status != "",
+		HasMoreNextActions: len(nextActions) > len(visibleNextActions),
 	})
 }
 
@@ -1655,24 +1662,16 @@ func (s *Server) contactsCreate(w http.ResponseWriter, r *http.Request) {
 	s.renderContactsIndex(w, r, contacts, values, form.errors, http.StatusUnprocessableEntity)
 }
 
-func (s *Server) followUpsIndex(w http.ResponseWriter, r *http.Request) {
-	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
-		return
-	}
-
-	applications, err := s.store.ListApplications(r.Context())
-	if err != nil {
-		serverError(w, r, err)
-		return
-	}
-
-	items := followUpItems(applications)
-	s.render(w, r, "followups_index.html", followUpsIndexData{Items: items})
+func (s *Server) followUpsRedirect(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/applications#next-actions", http.StatusSeeOther)
 }
 
-func (s *Server) backupIndex(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, "backup.html", backupData{GeneratedAt: time.Now().Format(time.RFC1123)})
+func (s *Server) settingsIndex(w http.ResponseWriter, r *http.Request) {
+	s.render(w, r, "settings.html", settingsData{GeneratedAt: time.Now().Format(time.RFC1123)})
+}
+
+func (s *Server) backupRedirect(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/settings", http.StatusSeeOther)
 }
 
 func (s *Server) exportJSON(w http.ResponseWriter, r *http.Request) {

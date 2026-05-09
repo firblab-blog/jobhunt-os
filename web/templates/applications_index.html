@@ -17,10 +17,8 @@
         <a href="/applications" aria-current="page">Applications</a>
         <a href="/documents">Documents</a>
         <a href="/contacts">Contacts</a>
-        <a href="/follow-ups">Follow-ups</a>
-        <a href="/backup">Backup</a>
+        <a href="/settings">Settings</a>
         </nav>
-        {{ template "theme_control" . }}
       </div>
     </header>
 
@@ -29,10 +27,53 @@
         <div class="panel-header">
           <div>
             <p class="eyebrow">Tracked opportunities</p>
-            <h2>Current applications</h2>
-            <p class="applications-count">{{ .ResultCount }} shown of {{ .TotalCount }} tracked</p>
+            <h2>Applications</h2>
+            <p class="applications-count">Work next actions first, then review the full tracked list.</p>
           </div>
           <a class="button" href="/applications/new">New application</a>
+        </div>
+
+        <section class="applications-next-actions" id="next-actions" aria-labelledby="next-actions-heading">
+          <div class="applications-next-actions-header">
+            <div>
+              <p class="eyebrow">Next actions</p>
+              <h3 id="next-actions-heading">Application work queue</h3>
+              <p>{{ .NextActionCount }} queued {{ if eq .NextActionCount 1 }}action{{ else }}actions{{ end }}</p>
+            </div>
+            {{ if .HasMoreNextActions }}<a class="dashboard-card-link" href="#applications-table">Showing first 5</a>{{ end }}
+          </div>
+          {{ if .NextActions }}
+          <ol class="applications-next-action-list">
+            {{ range .NextActions }}
+            <li>
+              <article class="applications-next-action-row">
+                <div class="followup-main">
+                  <span class="support-pill">{{ if .Due }}Due {{ .Due }}{{ else }}Unscheduled{{ end }}</span>
+                  <h4><a class="table-link" href="/applications/{{ .ID }}">{{ .Company }}</a></h4>
+                  <p>{{ .Role }}</p>
+                  <strong>{{ .Summary }}</strong>
+                </div>
+                <div class="followup-status">
+                  <span class="status" data-status="{{ .Status }}">{{ .StatusLabel }}</span>
+                </div>
+              </article>
+            </li>
+            {{ end }}
+          </ol>
+          {{ else }}
+          <div class="applications-next-actions-empty">
+            <strong>No next actions queued.</strong>
+            <span>Add a next action to an application when it needs a concrete follow-up.</span>
+          </div>
+          {{ end }}
+        </section>
+
+        <div class="applications-list-header">
+          <div>
+            <p class="eyebrow">Current applications</p>
+            <h3>Tracked list</h3>
+            <p class="applications-count">{{ .ResultCount }} shown of {{ .TotalCount }} tracked</p>
+          </div>
         </div>
 
         <form class="filter-form applications-filter" method="get" action="/applications">
@@ -59,7 +100,7 @@
           <section class="applications-table-view" aria-label="Applications table">
             {{ if .Applications }}
             <div class="applications-table-wrap">
-              <table class="applications-table">
+              <table class="applications-table" id="applications-table">
                 <thead>
                   <tr>
                     <th>Company</th>

@@ -17,10 +17,8 @@
         <a href="/applications">Applications</a>
         <a href="/documents">Documents</a>
         <a href="/contacts">Contacts</a>
-        <a href="/follow-ups">Follow-ups</a>
-        <a href="/backup">Backup</a>
+        <a href="/settings">Settings</a>
         </nav>
-        {{ template "theme_control" . }}
       </div>
     </header>
 
@@ -83,18 +81,18 @@
                 <p class="eyebrow">Follow-up health</p>
                 <h2>Keep promises visible</h2>
               </div>
-              <a class="dashboard-card-link" href="/follow-ups">Open</a>
+              <a class="dashboard-card-link" href="/applications#next-actions">Open</a>
             </div>
             <div class="dashboard-health-grid" aria-label="Follow-up health counts">
-              <a href="/follow-ups" class="dashboard-health-item is-alert">
+              <a href="/applications#next-actions" class="dashboard-health-item is-alert">
                 <strong>{{ .Stats.FollowUpHealth.Overdue }}</strong>
                 <span>Overdue</span>
               </a>
-              <a href="/follow-ups" class="dashboard-health-item is-today">
+              <a href="/applications#next-actions" class="dashboard-health-item is-today">
                 <strong>{{ .Stats.FollowUpHealth.DueToday }}</strong>
                 <span>Today</span>
               </a>
-              <a href="/follow-ups" class="dashboard-health-item">
+              <a href="/applications#next-actions" class="dashboard-health-item">
                 <strong>{{ .Stats.FollowUpHealth.Upcoming }}</strong>
                 <span>Upcoming</span>
               </a>
@@ -260,7 +258,7 @@
           <h2>Keep momentum</h2>
           <p class="empty-state">Use the queue to work the oldest due action first, then update the application with the next concrete step.</p>
           <div class="side-actions">
-            <a class="button secondary" href="/follow-ups">Open follow-ups</a>
+            <a class="button secondary" href="/applications#next-actions">Open next actions</a>
             <a class="button secondary" href="/documents">Review documents</a>
           </div>
         </aside>

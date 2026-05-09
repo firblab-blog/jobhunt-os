@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Backup - JobHunt OS</title>
+    <title>Settings - JobHunt OS</title>
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
@@ -17,20 +17,35 @@
         <a href="/applications">Applications</a>
         <a href="/documents">Documents</a>
         <a href="/contacts">Contacts</a>
-        <a href="/follow-ups">Follow-ups</a>
-        <a href="/backup" aria-current="page">Backup</a>
+        <a href="/settings" aria-current="page">Settings</a>
         </nav>
-        {{ template "theme_control" . }}
       </div>
     </header>
 
     <main>
-      <section class="panel utility-panel backup-panel">
+      <section class="panel utility-panel settings-panel">
         <div class="panel-header">
           <div>
+            <p class="eyebrow">Settings</p>
+            <h2>Workspace settings</h2>
+            <p class="utility-subtitle">Manage app preferences, exports, and other system-level tools.</p>
+          </div>
+        </div>
+
+        <div class="settings-section settings-theme-section">
+          <div>
+            <p class="eyebrow">Appearance</p>
+            <h3>Theme</h3>
+            <p>Choose how JobHunt OS should render on this device.</p>
+          </div>
+          {{ template "theme_control" . }}
+        </div>
+
+        <div class="settings-section settings-backup-section">
+          <div>
             <p class="eyebrow">Export</p>
-            <h2>Portable JSON snapshot</h2>
-            <p class="utility-subtitle">Save a point-in-time copy of the job-hunt records stored by this app.</p>
+            <h3>Portable JSON snapshot</h3>
+            <p>Save a point-in-time copy of the job-hunt records stored by this app.</p>
           </div>
           <a class="button" href="/export.json">Download export</a>
         </div>
