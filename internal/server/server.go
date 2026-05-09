@@ -81,6 +81,7 @@ type dashboardMetric struct {
 type dashboardPipelinePulse struct {
 	Groups             []dashboardPipelinePulseGroup
 	Signals            []dashboardPipelinePulseSignal
+	Sankey             applicationsSankeyData
 	TotalApplications  int
 	ActiveApplications int
 	ClosedApplications int
@@ -164,7 +165,6 @@ type dashboardNextAction struct {
 type applicationsIndexData struct {
 	Theme         pageTheme
 	Applications  []applicationListItem
-	Flow          applicationsFlowData
 	Query         string
 	Status        string
 	StatusOptions []selectOption
@@ -869,6 +869,7 @@ func dashboardPipelinePulseFor(applications []model.Application, stats dashboard
 	return dashboardPipelinePulse{
 		Groups:             groups,
 		Signals:            dashboardPipelinePulseSignals(stats, documentCount, dueFollowUps, interviewLoops),
+		Sankey:             applicationsFlowFor(applications).Sankey,
 		TotalApplications:  len(applications),
 		ActiveApplications: stats.ActiveApplications,
 		ClosedApplications: closedApplications,
@@ -1162,7 +1163,6 @@ func (s *Server) applicationsIndex(w http.ResponseWriter, r *http.Request) {
 
 	s.render(w, r, "applications_index.html", applicationsIndexData{
 		Applications:  items,
-		Flow:          applicationsFlowFor(filtered),
 		Query:         query,
 		Status:        status,
 		StatusOptions: applicationStatusFilterOptions(),

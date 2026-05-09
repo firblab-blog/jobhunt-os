@@ -39,29 +39,32 @@
             <h3 id="pipeline-flow-heading">Pipeline flow</h3>
             <p>{{ .PipelinePulse.TotalApplications }} total applications</p>
           </div>
-          <ol class="pipeline-pulse-stages" aria-label="Application pipeline by display group">
-            {{ range .PipelinePulse.Groups }}
-            <li class="pipeline-pulse-stage{{ if .Closed }} is-closed{{ end }}{{ if not .Count }} is-empty{{ end }}" data-status="{{ .Key }}" style="--pulse-share: {{ .Share }}%; --pulse-ribbon: {{ .Share }};">
-              <a class="pipeline-pulse-stage-link" href="{{ .Href }}">
-                <span>{{ .Label }}</span>
-                <strong>{{ .Count }}</strong>
-                <small>{{ .Share }}%</small>
-              </a>
-              {{ if .Closed }}
-              <ul class="pipeline-pulse-statuses" aria-label="Closed application outcomes">
-                {{ range .Statuses }}
-                <li>
-                  <a href="{{ .Href }}">
-                    <span>{{ .Label }}</span>
-                    <strong>{{ .Count }}</strong>
-                  </a>
-                </li>
+          <div class="pipeline-pulse-sankey-wrap">
+            <svg class="applications-sankey pipeline-pulse-sankey" viewBox="{{ .PipelinePulse.Sankey.ViewBox }}" role="img" aria-labelledby="pipeline-pulse-sankey-title pipeline-pulse-sankey-desc">
+              <title id="pipeline-pulse-sankey-title">Application pipeline Sankey</title>
+              <desc id="pipeline-pulse-sankey-desc">Current applications split across pipeline stages and closed outcomes.</desc>
+              <g class="applications-sankey-links" aria-hidden="true">
+                {{ range .PipelinePulse.Sankey.Links }}
+                <a href="{{ .Href }}">
+                  <path data-status="{{ .Key }}" d="{{ .Path }}" style="stroke-width: {{ .Width }}px;">
+                    <title>{{ .Label }}: {{ .Count }}</title>
+                  </path>
+                </a>
                 {{ end }}
-              </ul>
-              {{ end }}
-            </li>
-            {{ end }}
-          </ol>
+              </g>
+              <g class="applications-sankey-nodes">
+                {{ range .PipelinePulse.Sankey.Nodes }}
+                <a class="applications-sankey-node{{ if not .Count }} is-empty{{ end }}{{ if .Closed }} is-closed{{ end }}{{ if .Terminal }} is-terminal{{ end }}" data-status="{{ .Key }}" href="{{ .Href }}">
+                  <rect x="{{ .X }}" y="{{ .Y }}" width="9" height="{{ .Height }}" rx="3"></rect>
+                  <text x="{{ .TextX }}" y="{{ .TextY }}" text-anchor="{{ .Anchor }}">
+                    <tspan>{{ .Label }}</tspan>
+                    <tspan x="{{ .TextX }}" dy="19">{{ .Count }}</tspan>
+                  </text>
+                </a>
+                {{ end }}
+              </g>
+            </svg>
+          </div>
           {{ if not .PipelinePulse.HasApplications }}
           <div class="dashboard-empty-note pipeline-pulse-empty">
             <strong>No pipeline data yet.</strong>

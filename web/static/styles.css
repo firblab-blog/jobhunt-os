@@ -1311,7 +1311,6 @@ main {
 
 .applications-table-view {
   min-width: 0;
-  border-top: 1px solid var(--border);
 }
 
 .applications-flow {
@@ -1709,6 +1708,16 @@ main {
 
 .applications-flow-empty {
   margin-top: -2px;
+}
+
+.pipeline-pulse-sankey-wrap {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.pipeline-pulse-sankey {
+  min-height: 330px;
 }
 
 .button,

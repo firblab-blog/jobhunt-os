@@ -56,66 +56,6 @@
         </form>
 
         <div class="applications-view-shell">
-          <section class="applications-flow-view" aria-label="Applications flow">
-            <div class="applications-flow">
-              <div class="applications-flow-header">
-                <div>
-                  <p class="eyebrow">Current-state flow</p>
-                  <h2>Pipeline diagnostic</h2>
-                  <p class="applications-count">{{ .Flow.TotalApplications }} shown in this view</p>
-                </div>
-                <div class="applications-flow-stats" aria-label="Flow totals">
-                  <div>
-                    <strong>{{ .Flow.TotalApplications }}</strong>
-                    <span>Total</span>
-                  </div>
-                  <div>
-                    <strong>{{ .Flow.ActiveApplications }}</strong>
-                    <span>Active</span>
-                  </div>
-                  <div>
-                    <strong>{{ .Flow.ClosedApplications }}</strong>
-                    <span>Closed</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="applications-flow-map">
-                <svg class="applications-sankey" viewBox="{{ .Flow.Sankey.ViewBox }}" role="img" aria-labelledby="applications-sankey-title applications-sankey-desc">
-                  <title id="applications-sankey-title">Application pipeline Sankey</title>
-                  <desc id="applications-sankey-desc">Current applications split across pipeline stages and closed outcomes.</desc>
-                  <g class="applications-sankey-links" aria-hidden="true">
-                    {{ range .Flow.Sankey.Links }}
-                    <a href="{{ .Href }}">
-                      <path data-status="{{ .Key }}" d="{{ .Path }}" style="stroke-width: {{ .Width }}px;">
-                        <title>{{ .Label }}: {{ .Count }}</title>
-                      </path>
-                    </a>
-                    {{ end }}
-                  </g>
-                  <g class="applications-sankey-nodes">
-                    {{ range .Flow.Sankey.Nodes }}
-                    <a class="applications-sankey-node{{ if not .Count }} is-empty{{ end }}{{ if .Closed }} is-closed{{ end }}{{ if .Terminal }} is-terminal{{ end }}" data-status="{{ .Key }}" href="{{ .Href }}">
-                      <rect x="{{ .X }}" y="{{ .Y }}" width="9" height="{{ .Height }}" rx="3"></rect>
-                      <text x="{{ .TextX }}" y="{{ .TextY }}" text-anchor="{{ .Anchor }}">
-                        <tspan>{{ .Label }}</tspan>
-                        <tspan x="{{ .TextX }}" dy="19">{{ .Count }}</tspan>
-                      </text>
-                    </a>
-                    {{ end }}
-                  </g>
-                </svg>
-              </div>
-
-              {{ if not .Flow.HasApplications }}
-              <div class="dashboard-empty-note applications-flow-empty">
-                <strong>No flow data yet.</strong>
-                <span>Add an application to start filling the diagnostic view.</span>
-              </div>
-              {{ end }}
-            </div>
-          </section>
-
           <section class="applications-table-view" aria-label="Applications table">
             {{ if .Applications }}
             <div class="applications-table-wrap">
