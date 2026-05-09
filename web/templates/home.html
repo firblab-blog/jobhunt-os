@@ -25,71 +25,99 @@
     </header>
 
     <main>
-      <section class="today-board" aria-labelledby="today-heading">
-        <div class="today-copy">
-          <p class="eyebrow">Today</p>
-          <h2 id="today-heading">What should I do today?</h2>
-        </div>
-        {{ if .NextActions }}
-        <div class="today-actions" aria-label="Next actions due today">
-          {{ range .NextActions }}
-          <article class="today-action">
-            <div>
-              <span class="queue-label">{{ .State }}</span>
-              <h3>{{ if .Href }}<a href="{{ .Href }}">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}</h3>
-              <p>{{ .Meta }}</p>
-            </div>
-          </article>
-          {{ end }}
-        </div>
-        {{ else }}
-        <div class="today-empty">
-          <h3>No next actions due today.</h3>
-          <p>Pick the most promising application and add one concrete follow-up.</p>
-          <div class="button-row">
-            <a class="button" href="/applications">Review applications</a>
-            <a class="button secondary" href="/applications/new">New application</a>
+      <section class="pipeline-pulse" aria-labelledby="pipeline-pulse-heading">
+        <div class="pipeline-pulse-header">
+          <div>
+            <p class="eyebrow">Pipeline pulse</p>
+            <h2 id="pipeline-pulse-heading">Where the search stands today</h2>
           </div>
+          <a class="dashboard-card-link" href="/applications">View applications</a>
         </div>
-        {{ end }}
-      </section>
 
-      <section class="summary dashboard-summary" aria-label="Job hunt summary">
-        {{ range .Metrics }}
-        <a class="metric-card" href="{{ .Href }}">
-          <span>{{ .Label }}</span>
-          <strong>{{ .Value }}</strong>
-          <small>{{ .Action }}</small>
-        </a>
-        {{ end }}
-      </section>
-
-      <section class="dashboard-insights" aria-label="Dashboard health">
-        <article class="dashboard-card dashboard-pipeline-card">
-          <div class="dashboard-card-header">
-            <div>
-              <p class="eyebrow">Pipeline</p>
-              <h2>Where opportunities sit</h2>
+        <div class="pipeline-pulse-layout">
+          <section class="pipeline-pulse-flow" aria-labelledby="pipeline-flow-heading">
+            <div class="pipeline-pulse-section-header">
+              <h3 id="pipeline-flow-heading">Pipeline flow</h3>
+              <p>{{ .PipelinePulse.TotalApplications }} total applications</p>
             </div>
-            <a class="dashboard-card-link" href="/applications">View all</a>
-          </div>
-          {{ if .Stats.TotalApplications }}
-          <div class="dashboard-pipeline-row" aria-label="Application pipeline by status">
-            {{ range .Stats.PipelineCounts }}
-            <a class="dashboard-pipeline-segment{{ if not .Count }} is-empty{{ end }}" data-status="{{ .Key }}" href="{{ .Href }}">
+            <ol class="pipeline-pulse-stages" aria-label="Application pipeline by display group">
+              {{ range .PipelinePulse.Groups }}
+              <li class="pipeline-pulse-stage{{ if .Closed }} is-closed{{ end }}{{ if not .Count }} is-empty{{ end }}" data-status="{{ .Key }}">
+                <a class="pipeline-pulse-stage-link" href="{{ .Href }}">
+                  <span>{{ .Label }}</span>
+                  <strong>{{ .Count }}</strong>
+                  <small>{{ .Share }}%</small>
+                </a>
+                {{ if .Closed }}
+                <ul class="pipeline-pulse-statuses" aria-label="Closed application outcomes">
+                  {{ range .Statuses }}
+                  <li>
+                    <a href="{{ .Href }}">
+                      <span>{{ .Label }}</span>
+                      <strong>{{ .Count }}</strong>
+                    </a>
+                  </li>
+                  {{ end }}
+                </ul>
+                {{ end }}
+              </li>
+              {{ end }}
+            </ol>
+            {{ if not .PipelinePulse.HasApplications }}
+            <div class="dashboard-empty-note pipeline-pulse-empty">
+              <strong>No pipeline data yet.</strong>
+              <span>Add an application to start building the board.</span>
+            </div>
+            {{ end }}
+          </section>
+
+          <section class="pipeline-pulse-action" aria-labelledby="pipeline-action-heading">
+            <div class="pipeline-pulse-section-header">
+              <p class="eyebrow">Today's move</p>
+              <h3 id="pipeline-action-heading">Next useful action</h3>
+            </div>
+            {{ if .NextActions }}
+            <ol class="pipeline-pulse-actions" aria-label="Next actions due today">
+              {{ range .NextActions }}
+              <li>
+                <article class="pipeline-pulse-next-action">
+                  <span class="queue-label">{{ .State }}</span>
+                  <h4>{{ if .Href }}<a href="{{ .Href }}">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}</h4>
+                  <p>{{ .Meta }}</p>
+                </article>
+              </li>
+              {{ end }}
+            </ol>
+            <div class="button-row">
+              <a class="button" href="/follow-ups">Open follow-ups</a>
+              <a class="button secondary" href="/applications">Review applications</a>
+            </div>
+            {{ else }}
+            <div class="pipeline-pulse-action-empty">
+              <h4>No next actions due today.</h4>
+              <p>Pick the most promising application and add one concrete follow-up.</p>
+              <div class="button-row">
+                <a class="button" href="/applications">Review applications</a>
+                <a class="button secondary" href="/applications/new">New application</a>
+              </div>
+            </div>
+            {{ end }}
+          </section>
+        </div>
+
+        <ul class="pipeline-pulse-signals" aria-label="Dashboard signals">
+          {{ range .PipelinePulse.Signals }}
+          <li>
+            <a class="pipeline-pulse-signal" data-signal="{{ .Key }}" href="{{ .Href }}">
               <strong>{{ .Count }}</strong>
               <span>{{ .Label }}</span>
             </a>
-            {{ end }}
-          </div>
-          {{ else }}
-          <div class="dashboard-empty-note">
-            <strong>No pipeline data yet.</strong>
-            <span>Add an application to start building the board.</span>
-          </div>
+          </li>
           {{ end }}
-        </article>
+        </ul>
+      </section>
 
+      <section class="dashboard-insights" aria-label="Dashboard health">
         <div class="dashboard-card-grid">
           <article class="dashboard-card">
             <div class="dashboard-card-header">

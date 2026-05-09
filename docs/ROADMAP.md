@@ -15,6 +15,7 @@
 - Follow-up reminders inside the UI using application-level next-action fields.
 - Document inventory and application attachments through join records.
 - CSV and JSON export.
+- Pipeline pulse dashboard and larger applications flow view. See [Pipeline Flow Plan](PIPELINE_FLOW_PLAN.md).
 
 ## Phase 2: Durable Local Storage
 

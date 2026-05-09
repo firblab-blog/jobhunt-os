@@ -44,16 +44,19 @@ type Server struct {
 	dataDir   string
 }
 
+const closedApplicationStatusFilter = "closed"
+
 type Options struct {
 	DataDir string
 }
 
 type dashboardData struct {
-	Theme        pageTheme
-	Applications []dashboardApplication
-	Metrics      []dashboardMetric
-	NextActions  []dashboardNextAction
-	Stats        dashboardStats
+	Theme         pageTheme
+	Applications  []dashboardApplication
+	Metrics       []dashboardMetric
+	NextActions   []dashboardNextAction
+	PipelinePulse dashboardPipelinePulse
+	Stats         dashboardStats
 }
 
 type dashboardApplication struct {
@@ -72,6 +75,44 @@ type dashboardMetric struct {
 	Value  string
 	Action string
 	Href   string
+}
+
+type dashboardPipelinePulse struct {
+	Groups             []dashboardPipelinePulseGroup
+	Signals            []dashboardPipelinePulseSignal
+	TotalApplications  int
+	ActiveApplications int
+	ClosedApplications int
+	DueFollowUps       int
+	InterviewLoops     int
+	DocumentCount      int
+	StaleOpportunities int
+	NoNextAction       int
+	HasApplications    bool
+}
+
+type dashboardPipelinePulseGroup struct {
+	Key      string
+	Label    string
+	Count    int
+	Share    int
+	Href     string
+	Closed   bool
+	Statuses []dashboardPipelinePulseStatus
+}
+
+type dashboardPipelinePulseStatus struct {
+	Key   string
+	Label string
+	Count int
+	Href  string
+}
+
+type dashboardPipelinePulseSignal struct {
+	Key   string
+	Label string
+	Count int
+	Href  string
 }
 
 type dashboardStats struct {
@@ -122,12 +163,41 @@ type dashboardNextAction struct {
 type applicationsIndexData struct {
 	Theme         pageTheme
 	Applications  []applicationListItem
+	Flow          applicationsFlowData
 	Query         string
 	Status        string
 	StatusOptions []selectOption
 	TotalCount    int
 	ResultCount   int
 	HasFilters    bool
+}
+
+type applicationsFlowData struct {
+	Stages             []applicationsFlowStage
+	ClosedStatuses     []applicationsFlowStatus
+	TotalApplications  int
+	ActiveApplications int
+	ClosedApplications int
+	HasApplications    bool
+}
+
+type applicationsFlowStage struct {
+	Key      string
+	Label    string
+	Count    int
+	Share    int
+	Href     string
+	Closed   bool
+	Terminal bool
+	Statuses []applicationsFlowStatus
+}
+
+type applicationsFlowStatus struct {
+	Key   string
+	Label string
+	Count int
+	Share int
+	Href  string
 }
 
 type applicationListItem struct {
@@ -486,6 +556,7 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 		slog.Error("count dashboard documents", "error", err)
 		documentCount = 0
 	}
+	pulse := dashboardPipelinePulseFor(applications, stats, documentCount)
 
 	return dashboardData{
 		Metrics: []dashboardMetric{
@@ -494,9 +565,10 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 			{Label: "Interview loops", Value: itoa(interviews), Action: "Prep next", Href: "/applications?status=interviewing"},
 			{Label: "Documents", Value: itoa(documentCount), Action: "Review library", Href: "/documents"},
 		},
-		Applications: items,
-		NextActions:  nextActions,
-		Stats:        stats,
+		Applications:  items,
+		NextActions:   nextActions,
+		PipelinePulse: pulse,
+		Stats:         stats,
 	}
 }
 
@@ -557,6 +629,35 @@ func fallbackDashboardData() dashboardData {
 			{Text: "Send recruiter follow-up for Atlas Cloud.", Meta: "Applied", State: "Ready when you are"},
 			{Text: "Attach tailored cover letter to Signal Works draft.", Meta: "Prospect", State: "High priority"},
 		},
+		PipelinePulse: dashboardPipelinePulseFor([]model.Application{
+			{Status: model.StatusProspect, NextAction: model.NextAction{Summary: "Tailor cover letter"}},
+			{Status: model.StatusProspect, NextAction: model.NextAction{Summary: "Find hiring manager"}},
+			{Status: model.StatusProspect},
+			{Status: model.StatusProspect},
+			{Status: model.StatusApplied, NextAction: model.NextAction{Summary: "Follow up"}},
+			{Status: model.StatusApplied, NextAction: model.NextAction{Summary: "Send note"}},
+			{Status: model.StatusApplied, NextAction: model.NextAction{Summary: "Check portal"}},
+			{Status: model.StatusApplied, NextAction: model.NextAction{Summary: "Ask referral"}},
+			{Status: model.StatusApplied, NextAction: model.NextAction{Summary: "Refresh notes"}},
+			{Status: model.StatusInterviewing, NextAction: model.NextAction{Summary: "Prep system design notes"}},
+			{Status: model.StatusInterviewing, NextAction: model.NextAction{Summary: "Prep behavioral notes"}},
+			{Status: model.StatusOffer},
+			{Status: model.StatusRejected},
+			{Status: model.StatusRejected},
+			{Status: model.StatusRejected},
+			{Status: model.StatusWithdrawn},
+		}, dashboardStats{
+			FollowUpHealth: dashboardFollowUpHealth{
+				Overdue:      1,
+				DueToday:     1,
+				Upcoming:     1,
+				Unscheduled:  1,
+				NoNextAction: 2,
+			},
+			TotalApplications:       16,
+			ActiveApplications:      12,
+			StaleActiveApplications: 2,
+		}, 5),
 		Stats: dashboardStats{
 			PipelineCounts: []dashboardStatCount{
 				{Key: string(model.StatusProspect), Label: "Prospect", Count: 4, Href: "/applications?status=prospect"},
@@ -727,6 +828,144 @@ func dashboardQueue(applications []model.Application, now time.Time, limit int) 
 	return items
 }
 
+func dashboardPipelinePulseFor(applications []model.Application, stats dashboardStats, documentCount int) dashboardPipelinePulse {
+	groups := dashboardPipelinePulseGroups(applications)
+	dueFollowUps := stats.FollowUpHealth.Overdue + stats.FollowUpHealth.DueToday
+	interviewLoops := dashboardPipelinePulseGroupCount(groups, string(model.StatusInterviewing))
+	closedApplications := dashboardPipelinePulseGroupCount(groups, "closed")
+
+	return dashboardPipelinePulse{
+		Groups:             groups,
+		Signals:            dashboardPipelinePulseSignals(stats, documentCount, dueFollowUps, interviewLoops),
+		TotalApplications:  len(applications),
+		ActiveApplications: stats.ActiveApplications,
+		ClosedApplications: closedApplications,
+		DueFollowUps:       dueFollowUps,
+		InterviewLoops:     interviewLoops,
+		DocumentCount:      documentCount,
+		StaleOpportunities: stats.StaleActiveApplications,
+		NoNextAction:       stats.FollowUpHealth.NoNextAction,
+		HasApplications:    len(applications) > 0,
+	}
+}
+
+func dashboardPipelinePulseGroups(applications []model.Application) []dashboardPipelinePulseGroup {
+	statusCounts := make(map[model.ApplicationStatus]int, len(applicationStatusOptions()))
+	for _, app := range applications {
+		statusCounts[app.Status]++
+	}
+
+	definitions := dashboardPipelinePulseGroupDefinitions()
+	groups := make([]dashboardPipelinePulseGroup, 0, len(definitions))
+	for _, definition := range definitions {
+		statuses := make([]dashboardPipelinePulseStatus, 0, len(definition.statuses))
+		groupCount := 0
+		for _, status := range definition.statuses {
+			count := statusCounts[status]
+			groupCount += count
+			statuses = append(statuses, dashboardPipelinePulseStatus{
+				Key:   string(status),
+				Label: statusLabel(status),
+				Count: count,
+				Href:  "/applications?status=" + string(status),
+			})
+		}
+
+		groups = append(groups, dashboardPipelinePulseGroup{
+			Key:      definition.key,
+			Label:    definition.label,
+			Count:    groupCount,
+			Share:    dashboardPulseShare(groupCount, len(applications)),
+			Href:     definition.href,
+			Closed:   definition.closed,
+			Statuses: statuses,
+		})
+	}
+	return groups
+}
+
+type dashboardPipelinePulseGroupDefinition struct {
+	key      string
+	label    string
+	href     string
+	closed   bool
+	statuses []model.ApplicationStatus
+}
+
+func dashboardPipelinePulseGroupDefinitions() []dashboardPipelinePulseGroupDefinition {
+	return []dashboardPipelinePulseGroupDefinition{
+		{
+			key:      string(model.StatusProspect),
+			label:    "Prospect",
+			href:     "/applications?status=" + string(model.StatusProspect),
+			statuses: []model.ApplicationStatus{model.StatusProspect},
+		},
+		{
+			key:      string(model.StatusApplied),
+			label:    "Applied",
+			href:     "/applications?status=" + string(model.StatusApplied),
+			statuses: []model.ApplicationStatus{model.StatusApplied},
+		},
+		{
+			key:      string(model.StatusInterviewing),
+			label:    "Interviewing",
+			href:     "/applications?status=" + string(model.StatusInterviewing),
+			statuses: []model.ApplicationStatus{model.StatusInterviewing},
+		},
+		{
+			key:      string(model.StatusOffer),
+			label:    "Offer",
+			href:     "/applications?status=" + string(model.StatusOffer),
+			statuses: []model.ApplicationStatus{model.StatusOffer},
+		},
+		{
+			key:      string(model.StatusAccepted),
+			label:    "Accepted",
+			href:     "/applications?status=" + string(model.StatusAccepted),
+			statuses: []model.ApplicationStatus{model.StatusAccepted},
+		},
+		{
+			key:    "closed",
+			label:  "Closed",
+			href:   "/applications?status=" + closedApplicationStatusFilter,
+			closed: true,
+			statuses: []model.ApplicationStatus{
+				model.StatusDeclined,
+				model.StatusRejected,
+				model.StatusWithdrawn,
+				model.StatusArchived,
+			},
+		},
+	}
+}
+
+func dashboardPipelinePulseSignals(stats dashboardStats, documentCount int, dueFollowUps int, interviewLoops int) []dashboardPipelinePulseSignal {
+	return []dashboardPipelinePulseSignal{
+		{Key: "active_applications", Label: "Active applications", Count: stats.ActiveApplications, Href: "/applications"},
+		{Key: "due_follow_ups", Label: "Due follow-ups", Count: dueFollowUps, Href: "/follow-ups"},
+		{Key: "interview_loops", Label: "Interview loops", Count: interviewLoops, Href: "/applications?status=interviewing"},
+		{Key: "documents", Label: "Documents", Count: documentCount, Href: "/documents"},
+		{Key: "stale_opportunities", Label: "Stale opportunities", Count: stats.StaleActiveApplications, Href: "/applications"},
+		{Key: "no_next_action", Label: "No next action", Count: stats.FollowUpHealth.NoNextAction, Href: "/applications"},
+	}
+}
+
+func dashboardPipelinePulseGroupCount(groups []dashboardPipelinePulseGroup, key string) int {
+	for _, group := range groups {
+		if group.Key == key {
+			return group.Count
+		}
+	}
+	return 0
+}
+
+func dashboardPulseShare(count int, total int) int {
+	if total <= 0 || count <= 0 {
+		return 0
+	}
+	return (count*100 + total/2) / total
+}
+
 func dashboardApplicationLess(left, right model.Application, now time.Time) bool {
 	if cmp := dashboardDueRank(left.NextAction.Due, now) - dashboardDueRank(right.NextAction.Due, now); cmp != 0 {
 		return cmp < 0
@@ -876,7 +1115,7 @@ func (s *Server) applicationsIndex(w http.ResponseWriter, r *http.Request) {
 
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
-	filtered := filterApplications(applications, query, model.ApplicationStatus(status))
+	filtered := filterApplications(applications, query, status)
 
 	items := make([]applicationListItem, 0, len(filtered))
 	for _, app := range filtered {
@@ -891,13 +1130,142 @@ func (s *Server) applicationsIndex(w http.ResponseWriter, r *http.Request) {
 
 	s.render(w, r, "applications_index.html", applicationsIndexData{
 		Applications:  items,
+		Flow:          applicationsFlowFor(filtered),
 		Query:         query,
 		Status:        status,
-		StatusOptions: applicationStatusOptions(),
+		StatusOptions: applicationStatusFilterOptions(),
 		TotalCount:    len(applications),
 		ResultCount:   len(items),
 		HasFilters:    query != "" || status != "",
 	})
+}
+
+func applicationsFlowFor(applications []model.Application) applicationsFlowData {
+	statusCounts := make(map[model.ApplicationStatus]int, len(applicationStatusOptions()))
+	activeApplications := 0
+	for _, app := range applications {
+		statusCounts[app.Status]++
+		if isActiveStatus(app.Status) {
+			activeApplications++
+		}
+	}
+
+	definitions := applicationsFlowStageDefinitions()
+	stages := make([]applicationsFlowStage, 0, len(definitions))
+	closedStatuses := make([]applicationsFlowStatus, 0, 4)
+	closedApplications := 0
+	totalApplications := len(applications)
+
+	for _, definition := range definitions {
+		statuses := make([]applicationsFlowStatus, 0, len(definition.statuses))
+		stageCount := 0
+		for _, status := range definition.statuses {
+			count := statusCounts[status]
+			stageCount += count
+			statusItem := applicationsFlowStatus{
+				Key:   string(status),
+				Label: statusLabel(status),
+				Count: count,
+				Share: applicationsFlowShare(count, totalApplications),
+				Href:  applicationsStatusFilterHref(status),
+			}
+			statuses = append(statuses, statusItem)
+			if definition.closed {
+				closedStatuses = append(closedStatuses, statusItem)
+			}
+		}
+		if definition.closed {
+			closedApplications = stageCount
+		}
+
+		stages = append(stages, applicationsFlowStage{
+			Key:      definition.key,
+			Label:    definition.label,
+			Count:    stageCount,
+			Share:    applicationsFlowShare(stageCount, totalApplications),
+			Href:     definition.href,
+			Closed:   definition.closed,
+			Terminal: definition.terminal,
+			Statuses: statuses,
+		})
+	}
+
+	return applicationsFlowData{
+		Stages:             stages,
+		ClosedStatuses:     closedStatuses,
+		TotalApplications:  totalApplications,
+		ActiveApplications: activeApplications,
+		ClosedApplications: closedApplications,
+		HasApplications:    totalApplications > 0,
+	}
+}
+
+type applicationsFlowStageDefinition struct {
+	key      string
+	label    string
+	href     string
+	closed   bool
+	terminal bool
+	statuses []model.ApplicationStatus
+}
+
+func applicationsFlowStageDefinitions() []applicationsFlowStageDefinition {
+	return []applicationsFlowStageDefinition{
+		{
+			key:      string(model.StatusProspect),
+			label:    "Prospect",
+			href:     applicationsStatusFilterHref(model.StatusProspect),
+			statuses: []model.ApplicationStatus{model.StatusProspect},
+		},
+		{
+			key:      string(model.StatusApplied),
+			label:    "Applied",
+			href:     applicationsStatusFilterHref(model.StatusApplied),
+			statuses: []model.ApplicationStatus{model.StatusApplied},
+		},
+		{
+			key:      string(model.StatusInterviewing),
+			label:    "Interviewing",
+			href:     applicationsStatusFilterHref(model.StatusInterviewing),
+			statuses: []model.ApplicationStatus{model.StatusInterviewing},
+		},
+		{
+			key:      string(model.StatusOffer),
+			label:    "Offer",
+			href:     applicationsStatusFilterHref(model.StatusOffer),
+			statuses: []model.ApplicationStatus{model.StatusOffer},
+		},
+		{
+			key:      string(model.StatusAccepted),
+			label:    "Accepted",
+			href:     applicationsStatusFilterHref(model.StatusAccepted),
+			terminal: true,
+			statuses: []model.ApplicationStatus{model.StatusAccepted},
+		},
+		{
+			key:    "closed",
+			label:  "Closed",
+			href:   "/applications?status=" + closedApplicationStatusFilter,
+			closed: true,
+			statuses: []model.ApplicationStatus{
+				model.StatusDeclined,
+				model.StatusRejected,
+				model.StatusWithdrawn,
+				model.StatusArchived,
+			},
+		},
+	}
+}
+
+func applicationsStatusFilterHref(status model.ApplicationStatus) string {
+	return "/applications?status=" + string(status)
+}
+
+func applicationsFlowShare(count int, total int) int {
+	if total <= 0 || count <= 0 {
+		return 0
+	}
+	return (count*100 + total/2) / total
 }
 
 func (s *Server) documentsIndex(w http.ResponseWriter, r *http.Request) {
@@ -2093,6 +2461,24 @@ func applicationStatusOptions() []selectOption {
 	}
 }
 
+func applicationStatusFilterOptions() []selectOption {
+	options := []selectOption{
+		{Value: string(model.StatusProspect), Label: "Prospect"},
+		{Value: string(model.StatusApplied), Label: "Applied"},
+		{Value: string(model.StatusInterviewing), Label: "Interviewing"},
+		{Value: string(model.StatusOffer), Label: "Offer"},
+		{Value: string(model.StatusAccepted), Label: "Accepted"},
+		{Value: closedApplicationStatusFilter, Label: "Closed outcomes"},
+	}
+	options = append(options,
+		selectOption{Value: string(model.StatusDeclined), Label: "Declined"},
+		selectOption{Value: string(model.StatusRejected), Label: "Rejected"},
+		selectOption{Value: string(model.StatusWithdrawn), Label: "Withdrawn"},
+		selectOption{Value: string(model.StatusArchived), Label: "Archived"},
+	)
+	return options
+}
+
 func documentTypeOptions() []selectOption {
 	return []selectOption{
 		{Value: string(model.DocumentResume), Label: "Resume"},
@@ -2303,16 +2689,22 @@ func isActiveStatus(status model.ApplicationStatus) bool {
 	}
 }
 
-func filterApplications(applications []model.Application, query string, status model.ApplicationStatus) []model.Application {
+func filterApplications(applications []model.Application, query string, status string) []model.Application {
 	query = strings.ToLower(strings.TrimSpace(query))
-	statusValid := status != "" && status.Valid()
-	if query == "" && !statusValid {
+	status = strings.TrimSpace(status)
+	statusValue := model.ApplicationStatus(status)
+	statusValid := statusValue.Valid()
+	closedStatus := status == closedApplicationStatusFilter
+	if query == "" && !statusValid && !closedStatus {
 		return applications
 	}
 
 	filtered := make([]model.Application, 0, len(applications))
 	for _, app := range applications {
-		if statusValid && app.Status != status {
+		if statusValid && app.Status != statusValue {
+			continue
+		}
+		if closedStatus && isActiveStatus(app.Status) {
 			continue
 		}
 		if query != "" && !applicationMatchesQuery(app, query) {

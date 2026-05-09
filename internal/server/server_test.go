@@ -538,6 +538,156 @@ func TestDashboardStatsForKeepsUnscheduledActionsSeparate(t *testing.T) {
 	}
 }
 
+func TestDashboardPipelinePulseGroupsStatuses(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 7, 16, 0, 0, 0, time.UTC)
+	overdue := now.AddDate(0, 0, -1)
+	dueToday := now
+	applications := []model.Application{
+		{
+			ID:        "app_prospect",
+			Status:    model.StatusProspect,
+			Priority:  model.PriorityHigh,
+			UpdatedAt: now,
+			NextAction: model.NextAction{
+				Summary: "Finish draft",
+				Due:     &overdue,
+			},
+		},
+		{
+			ID:        "app_applied",
+			Status:    model.StatusApplied,
+			Priority:  model.PriorityNormal,
+			UpdatedAt: now,
+			NextAction: model.NextAction{
+				Summary: "Follow up",
+				Due:     &dueToday,
+			},
+		},
+		{
+			ID:        "app_interviewing",
+			Status:    model.StatusInterviewing,
+			Priority:  model.PriorityNormal,
+			UpdatedAt: now,
+			NextAction: model.NextAction{
+				Summary: "Prep loop",
+			},
+		},
+		{
+			ID:        "app_offer",
+			Status:    model.StatusOffer,
+			Priority:  model.PriorityLow,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "app_accepted",
+			Status:    model.StatusAccepted,
+			Priority:  model.PriorityHigh,
+			UpdatedAt: now,
+		},
+	}
+
+	stats := dashboardStatsFor(applications, nil, now)
+	pulse := dashboardPipelinePulseFor(applications, stats, 3)
+
+	if got, want := len(pulse.Groups), 6; got != want {
+		t.Fatalf("pulse groups len = %d, want %d", got, want)
+	}
+	wantGroups := map[string]int{
+		string(model.StatusProspect):     1,
+		string(model.StatusApplied):      1,
+		string(model.StatusInterviewing): 1,
+		string(model.StatusOffer):        1,
+		string(model.StatusAccepted):     1,
+		"closed":                         0,
+	}
+	for key, want := range wantGroups {
+		if got := dashboardPipelinePulseGroupCount(pulse.Groups, key); got != want {
+			t.Fatalf("pulse group %q = %d, want %d", key, got, want)
+		}
+	}
+	if pulse.TotalApplications != 5 || pulse.ActiveApplications != 4 || !pulse.HasApplications {
+		t.Fatalf("pulse totals = total:%d active:%d has:%t, want total=5 active=4 has=true", pulse.TotalApplications, pulse.ActiveApplications, pulse.HasApplications)
+	}
+	if pulse.DueFollowUps != 2 || pulse.InterviewLoops != 1 || pulse.DocumentCount != 3 || pulse.NoNextAction != 1 {
+		t.Fatalf("pulse signals = due:%d interviews:%d docs:%d noNext:%d, want 2/1/3/1", pulse.DueFollowUps, pulse.InterviewLoops, pulse.DocumentCount, pulse.NoNextAction)
+	}
+	if got := dashboardPipelinePulseSignalCount(t, pulse.Signals, "due_follow_ups"); got != 2 {
+		t.Fatalf("due follow-ups signal = %d, want 2", got)
+	}
+	if got := dashboardPipelinePulseSignalCount(t, pulse.Signals, "documents"); got != 3 {
+		t.Fatalf("documents signal = %d, want 3", got)
+	}
+}
+
+func TestDashboardPipelinePulseEmptyState(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 7, 16, 0, 0, 0, time.UTC)
+	pulse := dashboardPipelinePulseFor(nil, dashboardStatsFor(nil, nil, now), 0)
+
+	if pulse.HasApplications {
+		t.Fatalf("pulse HasApplications = true, want false")
+	}
+	if pulse.TotalApplications != 0 || pulse.ActiveApplications != 0 || pulse.ClosedApplications != 0 {
+		t.Fatalf("empty pulse totals = %#v, want zero totals", pulse)
+	}
+	if got, want := len(pulse.Groups), 6; got != want {
+		t.Fatalf("empty pulse groups len = %d, want %d", got, want)
+	}
+	for _, group := range pulse.Groups {
+		if group.Count != 0 || group.Share != 0 {
+			t.Fatalf("empty pulse group %q = count:%d share:%d, want zeroes", group.Key, group.Count, group.Share)
+		}
+	}
+	for _, signal := range pulse.Signals {
+		if signal.Count != 0 {
+			t.Fatalf("empty pulse signal %q = %d, want 0", signal.Key, signal.Count)
+		}
+	}
+}
+
+func TestDashboardPipelinePulseAggregatesClosedStatuses(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 7, 16, 0, 0, 0, time.UTC)
+	applications := []model.Application{
+		{ID: "app_declined", Status: model.StatusDeclined, UpdatedAt: now},
+		{ID: "app_rejected", Status: model.StatusRejected, UpdatedAt: now},
+		{ID: "app_withdrawn", Status: model.StatusWithdrawn, UpdatedAt: now},
+		{ID: "app_archived", Status: model.StatusArchived, UpdatedAt: now},
+		{ID: "app_applied", Status: model.StatusApplied, UpdatedAt: now},
+	}
+
+	pulse := dashboardPipelinePulseFor(applications, dashboardStatsFor(applications, nil, now), 0)
+	closed := findDashboardPipelinePulseGroup(t, pulse.Groups, "closed")
+
+	if !closed.Closed {
+		t.Fatalf("closed group Closed = false, want true")
+	}
+	if closed.Count != 4 || pulse.ClosedApplications != 4 {
+		t.Fatalf("closed count = group:%d pulse:%d, want 4", closed.Count, pulse.ClosedApplications)
+	}
+	if closed.Href != "/applications?status=closed" {
+		t.Fatalf("closed href = %q, want /applications?status=closed", closed.Href)
+	}
+	wantStatusCounts := map[string]int{
+		string(model.StatusDeclined):  1,
+		string(model.StatusRejected):  1,
+		string(model.StatusWithdrawn): 1,
+		string(model.StatusArchived):  1,
+	}
+	for key, want := range wantStatusCounts {
+		if got := dashboardPipelinePulseStatusCount(t, closed.Statuses, key); got != want {
+			t.Fatalf("closed status %q = %d, want %d", key, got, want)
+		}
+	}
+	if got := dashboardPipelinePulseGroupCount(pulse.Groups, string(model.StatusApplied)); got != 1 {
+		t.Fatalf("applied group count = %d, want 1", got)
+	}
+}
+
 func dashboardPipelineCount(t *testing.T, counts []dashboardStatCount, status model.ApplicationStatus) int {
 	t.Helper()
 	for _, count := range counts {
@@ -546,6 +696,39 @@ func dashboardPipelineCount(t *testing.T, counts []dashboardStatCount, status mo
 		}
 	}
 	t.Fatalf("pipeline count for %q not found", status)
+	return 0
+}
+
+func findDashboardPipelinePulseGroup(t *testing.T, groups []dashboardPipelinePulseGroup, key string) dashboardPipelinePulseGroup {
+	t.Helper()
+	for _, group := range groups {
+		if group.Key == key {
+			return group
+		}
+	}
+	t.Fatalf("pipeline pulse group %q not found", key)
+	return dashboardPipelinePulseGroup{}
+}
+
+func dashboardPipelinePulseStatusCount(t *testing.T, statuses []dashboardPipelinePulseStatus, key string) int {
+	t.Helper()
+	for _, status := range statuses {
+		if status.Key == key {
+			return status.Count
+		}
+	}
+	t.Fatalf("pipeline pulse status %q not found", key)
+	return 0
+}
+
+func dashboardPipelinePulseSignalCount(t *testing.T, signals []dashboardPipelinePulseSignal, key string) int {
+	t.Helper()
+	for _, signal := range signals {
+		if signal.Key == key {
+			return signal.Count
+		}
+	}
+	t.Fatalf("pipeline pulse signal %q not found", key)
 	return 0
 }
 
@@ -641,6 +824,196 @@ func TestApplicationsIndexFiltersList(t *testing.T) {
 	if strings.Contains(body, "Northstar Systems") {
 		t.Fatalf("body contains application excluded by filters")
 	}
+}
+
+func TestApplicationsIndexFiltersClosedGroup(t *testing.T) {
+	t.Parallel()
+
+	rec := requestWithStore(http.MethodGet, "/applications?status=closed", nil, &fakeApplicationStore{
+		applications: []model.Application{
+			{
+				ID:      "app_active",
+				Company: "Active Co",
+				Role:    "Platform Engineer",
+				Status:  model.StatusApplied,
+			},
+			{
+				ID:      "app_rejected",
+				Company: "Rejected Co",
+				Role:    "Staff Engineer",
+				Status:  model.StatusRejected,
+			},
+			{
+				ID:      "app_archived",
+				Company: "Archived Co",
+				Role:    "Infra Lead",
+				Status:  model.StatusArchived,
+			},
+		},
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"Rejected Co",
+		"Archived Co",
+		`value="closed" selected`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body does not contain %q", want)
+		}
+	}
+	if strings.Contains(body, "Active Co") {
+		t.Fatalf("body contains active application excluded by closed filter")
+	}
+}
+
+func TestApplicationsFlowGroupsCurrentStatuses(t *testing.T) {
+	t.Parallel()
+
+	applications := []model.Application{
+		{ID: "app_prospect", Status: model.StatusProspect},
+		{ID: "app_applied_1", Status: model.StatusApplied},
+		{ID: "app_applied_2", Status: model.StatusApplied},
+		{ID: "app_interviewing", Status: model.StatusInterviewing},
+		{ID: "app_offer", Status: model.StatusOffer},
+		{ID: "app_accepted", Status: model.StatusAccepted},
+		{ID: "app_rejected", Status: model.StatusRejected},
+	}
+
+	flow := applicationsFlowFor(applications)
+
+	if got, want := len(flow.Stages), 6; got != want {
+		t.Fatalf("flow stages len = %d, want %d", got, want)
+	}
+	wantStages := map[string]int{
+		string(model.StatusProspect):     1,
+		string(model.StatusApplied):      2,
+		string(model.StatusInterviewing): 1,
+		string(model.StatusOffer):        1,
+		string(model.StatusAccepted):     1,
+		"closed":                         1,
+	}
+	for key, want := range wantStages {
+		if got := applicationsFlowStageCount(t, flow.Stages, key); got != want {
+			t.Fatalf("flow stage %q = %d, want %d", key, got, want)
+		}
+	}
+	if flow.TotalApplications != 7 || flow.ActiveApplications != 5 || flow.ClosedApplications != 1 || !flow.HasApplications {
+		t.Fatalf("flow totals = total:%d active:%d closed:%d has:%t, want 7/5/1/true",
+			flow.TotalApplications,
+			flow.ActiveApplications,
+			flow.ClosedApplications,
+			flow.HasApplications,
+		)
+	}
+
+	accepted := findApplicationsFlowStage(t, flow.Stages, string(model.StatusAccepted))
+	if !accepted.Terminal || accepted.Closed {
+		t.Fatalf("accepted stage flags = terminal:%t closed:%t, want terminal only", accepted.Terminal, accepted.Closed)
+	}
+}
+
+func TestApplicationsFlowEmptyState(t *testing.T) {
+	t.Parallel()
+
+	flow := applicationsFlowFor(nil)
+
+	if flow.HasApplications {
+		t.Fatalf("flow HasApplications = true, want false")
+	}
+	if flow.TotalApplications != 0 || flow.ActiveApplications != 0 || flow.ClosedApplications != 0 {
+		t.Fatalf("empty flow totals = %#v, want zero totals", flow)
+	}
+	if got, want := len(flow.Stages), 6; got != want {
+		t.Fatalf("empty flow stages len = %d, want %d", got, want)
+	}
+	if got, want := len(flow.ClosedStatuses), 4; got != want {
+		t.Fatalf("empty flow closed statuses len = %d, want %d", got, want)
+	}
+	for _, stage := range flow.Stages {
+		if stage.Count != 0 || stage.Share != 0 {
+			t.Fatalf("empty flow stage %q = count:%d share:%d, want zeroes", stage.Key, stage.Count, stage.Share)
+		}
+		for _, status := range stage.Statuses {
+			if status.Count != 0 || status.Share != 0 {
+				t.Fatalf("empty flow status %q = count:%d share:%d, want zeroes", status.Key, status.Count, status.Share)
+			}
+		}
+	}
+}
+
+func TestApplicationsFlowAggregatesClosedStatuses(t *testing.T) {
+	t.Parallel()
+
+	applications := []model.Application{
+		{ID: "app_declined_1", Status: model.StatusDeclined},
+		{ID: "app_declined_2", Status: model.StatusDeclined},
+		{ID: "app_rejected", Status: model.StatusRejected},
+		{ID: "app_withdrawn", Status: model.StatusWithdrawn},
+		{ID: "app_archived", Status: model.StatusArchived},
+		{ID: "app_applied", Status: model.StatusApplied},
+		{ID: "app_accepted", Status: model.StatusAccepted},
+	}
+
+	flow := applicationsFlowFor(applications)
+	closed := findApplicationsFlowStage(t, flow.Stages, "closed")
+
+	if !closed.Closed || closed.Terminal {
+		t.Fatalf("closed stage flags = closed:%t terminal:%t, want closed only", closed.Closed, closed.Terminal)
+	}
+	if closed.Count != 5 || flow.ClosedApplications != 5 {
+		t.Fatalf("closed count = stage:%d flow:%d, want 5", closed.Count, flow.ClosedApplications)
+	}
+	if closed.Href != "/applications?status=closed" {
+		t.Fatalf("closed href = %q, want /applications?status=closed", closed.Href)
+	}
+	wantStatusCounts := map[string]int{
+		string(model.StatusDeclined):  2,
+		string(model.StatusRejected):  1,
+		string(model.StatusWithdrawn): 1,
+		string(model.StatusArchived):  1,
+	}
+	for key, want := range wantStatusCounts {
+		if got := applicationsFlowStatusCount(t, flow.ClosedStatuses, key); got != want {
+			t.Fatalf("closed status %q = %d, want %d", key, got, want)
+		}
+		if got := applicationsFlowStatusCount(t, closed.Statuses, key); got != want {
+			t.Fatalf("closed stage status %q = %d, want %d", key, got, want)
+		}
+	}
+	if got := applicationsFlowStageCount(t, flow.Stages, string(model.StatusApplied)); got != 1 {
+		t.Fatalf("applied stage count = %d, want 1", got)
+	}
+}
+
+func findApplicationsFlowStage(t *testing.T, stages []applicationsFlowStage, key string) applicationsFlowStage {
+	t.Helper()
+	for _, stage := range stages {
+		if stage.Key == key {
+			return stage
+		}
+	}
+	t.Fatalf("applications flow stage %q not found", key)
+	return applicationsFlowStage{}
+}
+
+func applicationsFlowStageCount(t *testing.T, stages []applicationsFlowStage, key string) int {
+	t.Helper()
+	return findApplicationsFlowStage(t, stages, key).Count
+}
+
+func applicationsFlowStatusCount(t *testing.T, statuses []applicationsFlowStatus, key string) int {
+	t.Helper()
+	for _, status := range statuses {
+		if status.Key == key {
+			return status.Count
+		}
+	}
+	t.Fatalf("applications flow status %q not found", key)
+	return 0
 }
 
 func TestDocumentsCreateValidRedirects(t *testing.T) {
