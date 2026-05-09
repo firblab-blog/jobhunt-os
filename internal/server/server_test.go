@@ -46,7 +46,6 @@ func TestHomeRendersDashboard(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		"JobHunt OS",
-		"Active applications",
 		"Northstar Systems",
 		`href="/applications"`,
 		`href="/documents"`,

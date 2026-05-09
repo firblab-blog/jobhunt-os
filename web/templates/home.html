@@ -73,16 +73,6 @@
           {{ end }}
         </section>
 
-        <ul class="pipeline-pulse-signals" aria-label="Dashboard signals">
-          {{ range .PipelinePulse.Signals }}
-          <li>
-            <a class="pipeline-pulse-signal" data-signal="{{ .Key }}" href="{{ .Href }}">
-              <strong>{{ .Count }}</strong>
-              <span>{{ .Label }}</span>
-            </a>
-          </li>
-          {{ end }}
-        </ul>
       </section>
 
       <section class="dashboard-insights" aria-label="Dashboard health">
