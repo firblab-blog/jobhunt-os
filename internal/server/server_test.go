@@ -55,6 +55,7 @@ func TestHomeRendersDashboard(t *testing.T) {
 		`data-status="interviewing"`,
 		"Pipeline flow",
 		"16 total applications",
+		"Due follow-ups",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body does not contain %q", want)

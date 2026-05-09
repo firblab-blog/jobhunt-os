@@ -865,6 +865,76 @@ main {
   margin-top: -2px;
 }
 
+.pipeline-pulse-signals {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pipeline-pulse-signals li {
+  min-width: 0;
+}
+
+.pipeline-pulse-signal {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 48px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--surface-subtle) 82%, transparent);
+  color: var(--text);
+  text-decoration: none;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.pipeline-pulse-signal:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.pipeline-pulse-signal strong {
+  flex: 0 0 auto;
+  color: var(--text-strong);
+  font-size: 20px;
+  font-weight: 780;
+  line-height: 1;
+}
+
+.pipeline-pulse-signal span {
+  min-width: 0;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-pulse-signal[data-signal="due_follow_ups"],
+.pipeline-pulse-signal[data-signal="stale_opportunities"],
+.pipeline-pulse-signal[data-signal="no_next_action"] {
+  border-color: var(--dashboard-today-border);
+  background: color-mix(in srgb, var(--dashboard-today-bg) 72%, var(--surface));
+}
+
+.pipeline-pulse-signal[data-signal="interview_loops"] {
+  border-color: color-mix(in srgb, var(--pipeline-interviewing) 34%, var(--border));
+}
+
+.pipeline-pulse-signal[data-signal="documents"] {
+  border-color: color-mix(in srgb, var(--pipeline-offer) 28%, var(--border));
+}
+
 .dashboard-pipeline-card {
   padding-bottom: 14px;
 }
@@ -2886,6 +2956,10 @@ label strong {
     min-width: 910px;
   }
 
+  .pipeline-pulse-signals {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .applications-flow-header {
     display: grid;
   }
@@ -3000,6 +3074,10 @@ label strong {
   .pipeline-pulse-stages {
     grid-template-columns: repeat(6, minmax(118px, 1fr));
     min-width: 790px;
+  }
+
+  .pipeline-pulse-signals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .summary,
@@ -3237,7 +3315,8 @@ label strong {
     padding-left: 54px;
   }
 
-  .dashboard-pipeline-row {
+  .dashboard-pipeline-row,
+  .pipeline-pulse-signals {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
