@@ -915,6 +915,20 @@ func TestApplicationsFlowGroupsCurrentStatuses(t *testing.T) {
 	if !accepted.Terminal || accepted.Closed {
 		t.Fatalf("accepted stage flags = terminal:%t closed:%t, want terminal only", accepted.Terminal, accepted.Closed)
 	}
+	if got, want := len(flow.Sankey.Nodes), 11; got != want {
+		t.Fatalf("sankey nodes len = %d, want %d", got, want)
+	}
+	if got, want := len(flow.Sankey.Links), 7; got != want {
+		t.Fatalf("sankey links len = %d, want %d", got, want)
+	}
+	appliedNode := findApplicationsSankeyNode(t, flow.Sankey.Nodes, string(model.StatusApplied))
+	if appliedNode.Count != 2 || appliedNode.Href != "/applications?status=applied" {
+		t.Fatalf("applied sankey node = count:%d href:%q, want 2 and applied filter", appliedNode.Count, appliedNode.Href)
+	}
+	rejectedLink := findApplicationsSankeyLink(t, flow.Sankey.Links, "closed-"+string(model.StatusRejected))
+	if rejectedLink.Count != 1 || rejectedLink.Width <= 0 || rejectedLink.Path == "" {
+		t.Fatalf("rejected sankey link = count:%d width:%d path:%q, want populated link", rejectedLink.Count, rejectedLink.Width, rejectedLink.Path)
+	}
 }
 
 func TestApplicationsFlowEmptyState(t *testing.T) {
@@ -1015,6 +1029,28 @@ func applicationsFlowStatusCount(t *testing.T, statuses []applicationsFlowStatus
 	}
 	t.Fatalf("applications flow status %q not found", key)
 	return 0
+}
+
+func findApplicationsSankeyNode(t *testing.T, nodes []applicationsSankeyNode, key string) applicationsSankeyNode {
+	t.Helper()
+	for _, node := range nodes {
+		if node.Key == key {
+			return node
+		}
+	}
+	t.Fatalf("sankey node %q not found", key)
+	return applicationsSankeyNode{}
+}
+
+func findApplicationsSankeyLink(t *testing.T, links []applicationsSankeyLink, key string) applicationsSankeyLink {
+	t.Helper()
+	for _, link := range links {
+		if link.Key == key {
+			return link
+		}
+	}
+	t.Fatalf("sankey link %q not found", key)
+	return applicationsSankeyLink{}
 }
 
 func TestDocumentsCreateValidRedirects(t *testing.T) {

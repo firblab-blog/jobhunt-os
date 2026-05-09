@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
@@ -175,6 +176,7 @@ type applicationsIndexData struct {
 type applicationsFlowData struct {
 	Stages             []applicationsFlowStage
 	ClosedStatuses     []applicationsFlowStatus
+	Sankey             applicationsSankeyData
 	TotalApplications  int
 	ActiveApplications int
 	ClosedApplications int
@@ -198,6 +200,36 @@ type applicationsFlowStatus struct {
 	Count int
 	Share int
 	Href  string
+}
+
+type applicationsSankeyData struct {
+	ViewBox string
+	Nodes   []applicationsSankeyNode
+	Links   []applicationsSankeyLink
+}
+
+type applicationsSankeyNode struct {
+	Key      string
+	Label    string
+	Count    int
+	Href     string
+	X        int
+	Y        int
+	Height   int
+	TextX    int
+	TextY    int
+	Anchor   string
+	Terminal bool
+	Closed   bool
+}
+
+type applicationsSankeyLink struct {
+	Key   string
+	Label string
+	Count int
+	Href  string
+	Path  string
+	Width int
 }
 
 type applicationListItem struct {
@@ -1193,11 +1225,187 @@ func applicationsFlowFor(applications []model.Application) applicationsFlowData 
 	return applicationsFlowData{
 		Stages:             stages,
 		ClosedStatuses:     closedStatuses,
+		Sankey:             applicationsSankeyFor(stages, closedStatuses, totalApplications),
 		TotalApplications:  totalApplications,
 		ActiveApplications: activeApplications,
 		ClosedApplications: closedApplications,
 		HasApplications:    totalApplications > 0,
 	}
+}
+
+func applicationsSankeyFor(stages []applicationsFlowStage, closedStatuses []applicationsFlowStatus, total int) applicationsSankeyData {
+	const (
+		nodeWidth = 9
+	)
+	nodes := []applicationsSankeyNode{
+		applicationsSankeyNodeFor("tracked", "Tracked", total, "/applications", 24, 86, applicationsSankeyRootHeight(total), false, false),
+	}
+	links := make([]applicationsSankeyLink, 0, len(stages)+len(closedStatuses))
+
+	stagePositions := map[string][2]int{
+		string(model.StatusProspect):     {238, 276},
+		string(model.StatusApplied):      {432, 132},
+		string(model.StatusInterviewing): {626, 110},
+		string(model.StatusOffer):        {820, 132},
+		string(model.StatusAccepted):     {1036, 78},
+		"closed":                         {1036, 258},
+	}
+	outcomePositions := map[string][2]int{
+		string(model.StatusDeclined):  {1206, 214},
+		string(model.StatusRejected):  {1206, 260},
+		string(model.StatusWithdrawn): {1206, 306},
+		string(model.StatusArchived):  {1206, 352},
+	}
+
+	root := nodes[0]
+	rootExitY := map[string]int{
+		string(model.StatusProspect):     root.Y + 248,
+		string(model.StatusApplied):      root.Y + 92,
+		string(model.StatusInterviewing): root.Y + 60,
+		string(model.StatusOffer):        root.Y + 126,
+		string(model.StatusAccepted):     root.Y + 28,
+		"closed":                         root.Y + 205,
+	}
+
+	for _, stage := range stages {
+		position, ok := stagePositions[stage.Key]
+		if !ok {
+			continue
+		}
+		node := applicationsSankeyNodeFor(stage.Key, stage.Label, stage.Count, stage.Href, position[0], position[1], applicationsSankeyNodeHeight(stage.Count, total), stage.Terminal, stage.Closed)
+		nodes = append(nodes, node)
+		if stage.Count > 0 {
+			links = append(links, applicationsSankeyLinkFor(
+				"tracked-"+stage.Key,
+				"Tracked to "+stage.Label,
+				stage.Count,
+				stage.Href,
+				root.X+nodeWidth,
+				rootExitY[stage.Key],
+				node.X,
+				node.Y+node.Height/2,
+				total,
+			))
+		}
+	}
+
+	closedNode := applicationsSankeyFindNode(nodes, "closed")
+	if closedNode.Count > 0 {
+		for _, status := range closedStatuses {
+			position, ok := outcomePositions[status.Key]
+			if !ok {
+				continue
+			}
+			node := applicationsSankeyNodeFor(status.Key, status.Label, status.Count, status.Href, position[0], position[1], applicationsSankeyOutcomeHeight(status.Count, total), true, true)
+			nodes = append(nodes, node)
+			if status.Count > 0 {
+				links = append(links, applicationsSankeyLinkFor(
+					"closed-"+status.Key,
+					"Closed to "+status.Label,
+					status.Count,
+					status.Href,
+					closedNode.X+nodeWidth,
+					closedNode.Y+closedNode.Height/2,
+					node.X,
+					node.Y+node.Height/2,
+					total,
+				))
+			}
+		}
+	}
+
+	return applicationsSankeyData{
+		ViewBox: "0 0 1280 430",
+		Nodes:   nodes,
+		Links:   links,
+	}
+}
+
+func applicationsSankeyNodeFor(key string, label string, count int, href string, x int, y int, height int, terminal bool, closed bool) applicationsSankeyNode {
+	anchor := "start"
+	textX := x + 16
+	if x >= 1036 {
+		anchor = "end"
+		textX = x - 12
+	}
+	return applicationsSankeyNode{
+		Key:      key,
+		Label:    label,
+		Count:    count,
+		Href:     href,
+		X:        x,
+		Y:        y,
+		Height:   height,
+		TextX:    textX,
+		TextY:    y + height/2 - 8,
+		Anchor:   anchor,
+		Terminal: terminal,
+		Closed:   closed,
+	}
+}
+
+func applicationsSankeyLinkFor(key string, label string, count int, href string, x1 int, y1 int, x2 int, y2 int, total int) applicationsSankeyLink {
+	control := (x2 - x1) / 2
+	if control < 70 {
+		control = 70
+	}
+	return applicationsSankeyLink{
+		Key:   key,
+		Label: label,
+		Count: count,
+		Href:  href,
+		Path:  fmt.Sprintf("M %d %d C %d %d, %d %d, %d %d", x1, y1, x1+control, y1, x2-control, y2, x2, y2),
+		Width: applicationsSankeyLinkWidth(count, total),
+	}
+}
+
+func applicationsSankeyFindNode(nodes []applicationsSankeyNode, key string) applicationsSankeyNode {
+	for _, node := range nodes {
+		if node.Key == key {
+			return node
+		}
+	}
+	return applicationsSankeyNode{}
+}
+
+func applicationsSankeyRootHeight(total int) int {
+	if total <= 0 {
+		return 180
+	}
+	return 288
+}
+
+func applicationsSankeyNodeHeight(count int, total int) int {
+	if total <= 0 || count <= 0 {
+		return 22
+	}
+	height := 34 + (count * 150 / total)
+	if height > 190 {
+		return 190
+	}
+	return height
+}
+
+func applicationsSankeyOutcomeHeight(count int, total int) int {
+	if total <= 0 || count <= 0 {
+		return 18
+	}
+	height := 24 + (count * 90 / total)
+	if height > 120 {
+		return 120
+	}
+	return height
+}
+
+func applicationsSankeyLinkWidth(count int, total int) int {
+	if total <= 0 || count <= 0 {
+		return 0
+	}
+	width := 8 + (count * 64 / total)
+	if width > 72 {
+		return 72
+	}
+	return width
 }
 
 type applicationsFlowStageDefinition struct {

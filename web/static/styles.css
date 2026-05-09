@@ -1383,6 +1383,127 @@ main {
   scrollbar-width: thin;
 }
 
+.applications-sankey {
+  display: block;
+  width: 100%;
+  min-width: 1080px;
+  height: auto;
+  min-height: 360px;
+}
+
+.applications-sankey-links path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--accent) 34%, transparent);
+  stroke-linecap: butt;
+  opacity: 0.82;
+  transition:
+    opacity 140ms ease,
+    stroke 140ms ease;
+}
+
+.applications-sankey-links a:hover path {
+  opacity: 1;
+  stroke: color-mix(in srgb, var(--accent) 52%, transparent);
+}
+
+.applications-sankey-links path[data-status$="prospect"] {
+  stroke: color-mix(in srgb, var(--pipeline-prospect) 36%, transparent);
+}
+
+.applications-sankey-links path[data-status$="applied"] {
+  stroke: color-mix(in srgb, var(--pipeline-applied) 36%, transparent);
+}
+
+.applications-sankey-links path[data-status$="interviewing"] {
+  stroke: color-mix(in srgb, var(--pipeline-interviewing) 38%, transparent);
+}
+
+.applications-sankey-links path[data-status$="offer"] {
+  stroke: color-mix(in srgb, var(--pipeline-offer) 38%, transparent);
+}
+
+.applications-sankey-links path[data-status$="accepted"] {
+  stroke: color-mix(in srgb, var(--pipeline-accepted) 38%, transparent);
+}
+
+.applications-sankey-links path[data-status$="closed"],
+.applications-sankey-links path[data-status$="declined"],
+.applications-sankey-links path[data-status$="rejected"],
+.applications-sankey-links path[data-status$="withdrawn"],
+.applications-sankey-links path[data-status$="archived"] {
+  stroke: color-mix(in srgb, var(--pipeline-closed) 36%, transparent);
+}
+
+.applications-sankey-node {
+  color: var(--muted-strong);
+  text-decoration: none;
+}
+
+.applications-sankey-node rect {
+  fill: var(--accent);
+  transition:
+    filter 140ms ease,
+    opacity 140ms ease;
+}
+
+.applications-sankey-node text {
+  fill: currentColor;
+  font-size: 15px;
+  font-weight: 730;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.applications-sankey-node tspan + tspan {
+  fill: var(--text-strong);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.applications-sankey-node:hover {
+  color: var(--text-strong);
+}
+
+.applications-sankey-node:hover rect {
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 34%, transparent));
+}
+
+.applications-sankey-node.is-empty {
+  opacity: 0.42;
+}
+
+.applications-sankey-node[data-status="tracked"] rect {
+  fill: var(--pipeline-interviewing);
+}
+
+.applications-sankey-node[data-status="prospect"] rect {
+  fill: var(--pipeline-prospect);
+}
+
+.applications-sankey-node[data-status="applied"] rect {
+  fill: var(--pipeline-applied);
+}
+
+.applications-sankey-node[data-status="interviewing"] rect {
+  fill: var(--pipeline-interviewing);
+}
+
+.applications-sankey-node[data-status="offer"] rect {
+  fill: var(--pipeline-offer);
+}
+
+.applications-sankey-node[data-status="accepted"] rect {
+  fill: var(--pipeline-accepted);
+}
+
+.applications-sankey-node[data-status="closed"] rect,
+.applications-sankey-node[data-status="declined"] rect,
+.applications-sankey-node[data-status="rejected"] rect,
+.applications-sankey-node[data-status="withdrawn"] rect,
+.applications-sankey-node[data-status="archived"] rect {
+  fill: var(--pipeline-closed);
+}
+
 .applications-flow-stages {
   display: grid;
   grid-template-columns: repeat(6, minmax(148px, 1fr));
