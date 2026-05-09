@@ -95,10 +95,6 @@ func TestHomeRendersEmptyStoreDashboardStats(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		"No pipeline data yet.",
-		"Add an active opportunity to start building the follow-up queue.",
-		"Priority mix will appear once there is active work.",
-		"No active opportunities to age yet.",
-		"No tracked application activity this week yet.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body does not contain %q", want)
@@ -106,40 +102,6 @@ func TestHomeRendersEmptyStoreDashboardStats(t *testing.T) {
 	}
 	if strings.Contains(body, "dashboard-pipeline-segment") {
 		t.Fatalf("empty dashboard rendered pipeline count segments")
-	}
-}
-
-func TestHomeRendersThisWeekMomentumStats(t *testing.T) {
-	t.Parallel()
-
-	srv := New(nil).(*Server)
-	var body bytes.Buffer
-
-	err := srv.templates.ExecuteTemplate(&body, "home.html", dashboardData{
-		Stats: dashboardStats{
-			ThisWeekActivity: dashboardThisWeekActivity{
-				CreatedApplications: 3,
-				UpdatedApplications: 4,
-				Events:              2,
-				Total:               9,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("ExecuteTemplate() error = %v", err)
-	}
-	got := body.String()
-	for _, want := range []string{
-		"This week",
-		"Momentum",
-		"New applications",
-		"Application updates",
-		"Timeline events",
-		"9 tracked updates this week.",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("body does not contain %q", want)
-		}
 	}
 }
 
