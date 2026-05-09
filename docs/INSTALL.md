@@ -35,6 +35,11 @@ http://127.0.0.1:8080
 The default Compose file stores application data in `./data` next to
 `docker-compose.yml`.
 
+Before putting important job-hunt data in the app, review
+[BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md). The recommended default is a
+simple `./data` directory backup, with optional encryption for copies kept off
+the machine.
+
 ## Linux Data Ownership
 
 The app container runs as a non-root user. The Compose file includes a one-shot
@@ -61,6 +66,37 @@ data/
   documents/
   tmp/
 ```
+
+## Optional Built-In Authentication
+
+The default install is no-auth on `http://127.0.0.1:8080` for local use. To
+require HTTP Basic authentication, set both auth variables in your local `.env`
+file before restarting Compose:
+
+```text
+JOBHUNT_AUTH_USERNAME=<username>
+JOBHUNT_AUTH_PASSWORD_HASH='pbkdf2-sha256$210000$<salt-base64url>$<digest-base64url>'
+```
+
+Generate the password hash locally. See [CONFIGURATION.md](CONFIGURATION.md)
+for the PBKDF2-SHA256 hash format and a command that prompts for the password
+without writing it to shell history.
+
+Use single quotes around the hash in Docker Compose `.env` files so the `$`
+separators are passed literally. If you keep an unquoted example, escape each
+`$` as `$$`.
+
+When configured, `/healthz` remains unauthenticated for health checks. App
+routes, JSON export, and document downloads require credentials.
+
+HTTP Basic authentication is only appropriate over `localhost`, HTTPS, VPN, or
+another encrypted/trusted channel. Do not publish the app with built-in Basic
+auth over plain HTTP on an untrusted network.
+
+For HTTPS reverse-proxy deployments, also set
+`JOBHUNT_SECURE_COOKIES=true` in `.env` so browsers only send app cookies over
+HTTPS. See [REVERSE_PROXY.md](REVERSE_PROXY.md) for the recommended exposure
+pattern.
 
 ## Public Image
 
@@ -137,5 +173,5 @@ See [REVERSE_PROXY.md](REVERSE_PROXY.md).
 - Review [CONFIGURATION.md](CONFIGURATION.md) before changing environment
   variables.
 - Read [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md) before putting important
-  data in the app.
+  data in the app, and treat JSON exports as sensitive job-hunt records.
 - Read [UPGRADING.md](UPGRADING.md) before pulling a new image.

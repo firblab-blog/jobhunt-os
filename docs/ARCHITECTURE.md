@@ -46,7 +46,7 @@ enforcement is enabled through the SQLite DSN for each connection.
 
 ## Security Boundaries
 
-The app binds to localhost by default, has no built-in accounts, and stores data
-under a user-controlled data directory. State-changing forms use CSRF tokens.
-Network-exposed deployments need authentication at the reverse proxy or another
-external access-control layer.
+The app binds to localhost by default and stores data under a user-controlled
+data directory. State-changing forms use CSRF tokens. Network-exposed
+deployments should keep the app behind HTTPS, VPN, or another trusted channel
+and require authentication at the app or reverse-proxy layer.

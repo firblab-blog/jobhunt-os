@@ -27,7 +27,8 @@ http://127.0.0.1:8080
 
 The default Compose file stores JobHunt OS data in `./data` next to
 `docker-compose.yml`. Back up `./data` before upgrades and before putting
-important job hunt data in the app.
+important job hunt data in the app. The backup guide keeps the default flow
+simple and includes optional encrypted storage examples.
 
 Upgrade a Compose install from the directory that contains `docker-compose.yml`:
 
@@ -92,6 +93,8 @@ ownership for the configured UID/GID.
 - [Backup and restore](docs/BACKUP_AND_RESTORE.md)
 - [Upgrading](docs/UPGRADING.md)
 - [Reverse proxy](docs/REVERSE_PROXY.md)
+- [Security](docs/SECURITY.md)
+- [Security review](docs/SECURITY_REVIEW.md)
 - [Releases](docs/RELEASES.md)
 - [Operations](docs/OPERATIONS.md)
 
@@ -148,6 +151,10 @@ and test data should be synthetic.
 - Data hygiene: do not commit real resumes, cover letters, applications,
   recruiter messages, correspondence, or other personal job hunt data. Public
   fixtures should be synthetic and named `sample-*.yaml`.
+- Agent safety: AI agents working in this repository must default to read-only
+  behavior; see [AGENTS.md](AGENTS.md).
+- Security posture: see the public
+  [security review](docs/SECURITY_REVIEW.md).
 - Module path: `github.com/firblab-blog/jobhunt-os`.
 
 ## Product Scope
@@ -160,7 +167,8 @@ The current product is centered on manual job hunt tracking:
 - contacts connected to applications and timeline entries
 - timeline events for interviews, follow-ups, decisions, and notes
 - dashboard and application-level pipeline views
-- JSON export for review and migration work
+- JSON export for review and migration work; exports contain sensitive job-hunt
+  data and should be stored carefully
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

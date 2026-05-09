@@ -93,6 +93,89 @@ data/
   tmp/
 ```
 
+### `JOBHUNT_AUTH_USERNAME`
+
+Optional username for built-in HTTP Basic authentication.
+
+Default:
+
+```text
+unset
+```
+
+Authentication is disabled unless both `JOBHUNT_AUTH_USERNAME` and
+`JOBHUNT_AUTH_PASSWORD_HASH` are set. When enabled, all routes except
+`/healthz` require credentials, including `/export.json` and document download
+URLs.
+
+HTTP Basic authentication does not encrypt the username, password, requests, or
+responses. Use the built-in auth only over `localhost`, an HTTPS reverse proxy,
+a VPN, or another encrypted/trusted channel. Do not expose it over plain HTTP on
+an untrusted network.
+
+### `JOBHUNT_AUTH_PASSWORD_HASH`
+
+Optional PBKDF2-SHA256 password hash for built-in HTTP Basic authentication.
+
+Default:
+
+```text
+unset
+```
+
+The value must use this format:
+
+```text
+pbkdf2-sha256$<iterations>$<salt-base64url>$<digest-base64url>
+```
+
+Generate a hash locally without putting the plaintext password in shell history:
+
+```sh
+JOBHUNT_AUTH_PASSWORD_HASH="$(python3 - <<'PY'
+import base64
+import getpass
+import hashlib
+import secrets
+
+password = getpass.getpass("JobHunt OS password: ")
+salt = secrets.token_bytes(16)
+iterations = 210000
+digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations, dklen=32)
+encode = lambda value: base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+print(f"pbkdf2-sha256${iterations}${encode(salt)}${encode(digest)}")
+PY
+)"
+```
+
+Then store only the username and hash in the runtime environment, for example
+in a local `.env` file used by Docker Compose:
+
+```text
+JOBHUNT_AUTH_USERNAME=<username>
+JOBHUNT_AUTH_PASSWORD_HASH='pbkdf2-sha256$210000$<salt-base64url>$<digest-base64url>'
+```
+
+The single quotes matter for Docker Compose `.env` files because password
+hashes contain `$`. Alternatively, escape each dollar sign as `$$` in unquoted
+examples.
+
+### `JOBHUNT_SECURE_COOKIES`
+
+Adds the `Secure` attribute to CSRF and theme cookies.
+
+Default:
+
+```text
+false
+```
+
+Accepted values are Go-style booleans such as `true`, `false`, `1`, and `0`.
+
+Set this to `true` when JobHunt OS is served through an HTTPS reverse proxy.
+Leave it unset or `false` for plain HTTP localhost access, because browsers do
+not send `Secure` cookies over HTTP.
+
 ## Local Defaults vs Container Defaults
 
 When running the Go binary directly, JobHunt OS defaults to private local

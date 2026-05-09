@@ -1,6 +1,6 @@
 services:
   jobhunt-os-init:
-    image: busybox:1.37.0
+    image: busybox:1.37.0@sha256:1487d0af5f52b4ba31c7e465126ee2123fe3f2305d638e7827681e7cf6c83d5e
     restart: "no"
     command:
       - sh
@@ -12,6 +12,8 @@ services:
       - ./data:/data
 
   jobhunt-os:
+    # Keep latest for the lowest-friction install path. For deliberate
+    # upgrades, replace this with a version tag such as :v0.1.4.
     image: ghcr.io/firblab-blog/jobhunt-os:latest
     user: "${JOBHUNT_UID:-65532}:${JOBHUNT_GID:-65532}"
     restart: unless-stopped
@@ -24,5 +26,8 @@ services:
       JOBHUNT_ADDR: 0.0.0.0:8080
       JOBHUNT_ALLOW_NETWORK: "true"
       JOBHUNT_DATA_DIR: /data
+      JOBHUNT_AUTH_USERNAME: "${JOBHUNT_AUTH_USERNAME:-}"
+      JOBHUNT_AUTH_PASSWORD_HASH: "${JOBHUNT_AUTH_PASSWORD_HASH:-}"
+      JOBHUNT_SECURE_COOKIES: "${JOBHUNT_SECURE_COOKIES:-false}"
     volumes:
       - ./data:/data

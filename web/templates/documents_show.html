@@ -32,11 +32,13 @@
           </div>
           <div class="button-row">
             <a class="button secondary" href="/documents">Back to documents</a>
-            <a class="button" href="{{ .DownloadURL }}">Open PDF directly</a>
+            <a class="button secondary" href="{{ .PreviewURL }}">Open PDF directly</a>
+            <a class="button" href="{{ .DownloadURL }}">Download PDF</a>
           </div>
         </div>
 
-        <iframe class="document-preview" src="{{ .DownloadURL }}" title="PDF preview for {{ .Document.Name }}"></iframe>
+        <!-- Browser PDF viewers need script-capable iframe contexts for reliable inline preview. -->
+        <iframe class="document-preview" src="{{ .PreviewURL }}" title="PDF preview for {{ .Document.Name }}" sandbox="allow-same-origin allow-scripts" referrerpolicy="same-origin"></iframe>
       </section>
     </main>
   </body>

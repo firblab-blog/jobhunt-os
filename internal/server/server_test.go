@@ -14,8 +14,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/firblab-blog/jobhunt-os/internal/auth"
 	"github.com/firblab-blog/jobhunt-os/internal/model"
 	"github.com/firblab-blog/jobhunt-os/internal/store"
+)
+
+const (
+	testAuthUsername = "avery"
 )
 
 func TestHealthz(t *testing.T) {
@@ -31,6 +36,116 @@ func TestHealthz(t *testing.T) {
 	}
 	if body := rec.Body.String(); body != "ok\n" {
 		t.Fatalf("body = %q, want ok", body)
+	}
+}
+
+func TestAuthDisabledByDefaultAllowsAppRoutes(t *testing.T) {
+	t.Parallel()
+
+	rec := requestWithStore(http.MethodGet, "/export.json", nil, &fakeApplicationStore{})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if challenge := rec.Header().Get("WWW-Authenticate"); challenge != "" {
+		t.Fatalf("WWW-Authenticate = %q, want empty", challenge)
+	}
+}
+
+func TestAuthRequiredRejectsMissingCredentials(t *testing.T) {
+	t.Parallel()
+
+	authOptions, _ := testAuthOptions(t)
+	rec := requestWithOptions(http.MethodGet, "/", nil, Options{Auth: authOptions})
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if challenge := rec.Header().Get("WWW-Authenticate"); !strings.Contains(challenge, `Basic realm="JobHunt OS"`) {
+		t.Fatalf("WWW-Authenticate = %q, want Basic challenge", challenge)
+	}
+}
+
+func TestAuthLeavesHealthzUnauthenticated(t *testing.T) {
+	t.Parallel()
+
+	authOptions, _ := testAuthOptions(t)
+	rec := requestWithOptions(http.MethodGet, "/healthz", nil, Options{Auth: authOptions})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); body != "ok\n" {
+		t.Fatalf("body = %q, want ok", body)
+	}
+}
+
+func TestAuthAcceptsValidCredentials(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.SetBasicAuth(testAuthUsername, password)
+	rec := httptest.NewRecorder()
+
+	NewWithOptions(nil, Options{Auth: authOptions}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestAuthRejectsInvalidCredentials(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	for name, creds := range map[string]struct {
+		username string
+		password string
+	}{
+		"wrong username": {username: "mallory", password: password},
+		"wrong password": {username: testAuthUsername, password: password + "/wrong"},
+	} {
+		name := name
+		creds := creds
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.SetBasicAuth(creds.username, creds.password)
+			rec := httptest.NewRecorder()
+
+			NewWithOptions(nil, Options{Auth: authOptions}).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+			}
+		})
+	}
+}
+
+func TestAuthProtectsExportAndDocumentDownload(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	appStore := &fakeApplicationStore{
+		documents: []model.Document{
+			{ID: "doc_1", Name: "Resume", Type: model.DocumentResume, StoragePath: "documents/library/doc_1.pdf"},
+		},
+	}
+
+	for _, target := range []string{"/export.json", "/documents/doc_1/download"} {
+		target := target
+		t.Run(target, func(t *testing.T) {
+			t.Parallel()
+
+			authOptions, _ := testAuthOptions(t)
+			rec := requestWithOptions(http.MethodGet, target, appStore, Options{DataDir: dataDir, Auth: authOptions})
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+			}
+		})
 	}
 }
 
@@ -172,6 +287,31 @@ func TestThemeUpdateSetsCookieAndRedirects(t *testing.T) {
 	}
 	if cookie.Path != "/" || cookie.MaxAge <= 0 || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode {
 		t.Fatalf("theme cookie attributes = %#v, want persistent root HttpOnly SameSite=Lax cookie", cookie)
+	}
+	if cookie.Secure {
+		t.Fatalf("theme cookie Secure = true, want false by default")
+	}
+}
+
+func TestSecureCookiesOptionSetsThemeAndCSRFCookiesSecure(t *testing.T) {
+	t.Parallel()
+
+	themeRec := requestWithOptions(http.MethodGet, "/theme?theme=dark&return_to=/", nil, Options{SecureCookies: true})
+	themeCookies := themeRec.Result().Cookies()
+	if len(themeCookies) != 1 {
+		t.Fatalf("theme cookies len = %d, want 1", len(themeCookies))
+	}
+	if cookie := themeCookies[0]; cookie.Name != themeCookieName || !cookie.Secure {
+		t.Fatalf("theme cookie = %#v, want Secure %s cookie", cookie, themeCookieName)
+	}
+
+	csrfRec := requestWithOptions(http.MethodGet, "/documents", &fakeApplicationStore{}, Options{SecureCookies: true})
+	csrfCookies := csrfRec.Result().Cookies()
+	if len(csrfCookies) == 0 {
+		t.Fatalf("CSRF cookies len = 0, want CSRF cookie")
+	}
+	if cookie := csrfCookies[0]; cookie.Name != csrfCookieName || !cookie.Secure {
+		t.Fatalf("CSRF cookie = %#v, want Secure %s cookie", cookie, csrfCookieName)
 	}
 }
 
@@ -1165,6 +1305,12 @@ func TestExportJSONRendersSnapshot(t *testing.T) {
 	if contentType := rec.Header().Get("Content-Type"); !strings.Contains(contentType, "application/json") {
 		t.Fatalf("Content-Type = %q, want application/json", contentType)
 	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+	if got := rec.Header().Get("Content-Disposition"); got != `attachment; filename="jobhunt-os-export.json"` {
+		t.Fatalf("Content-Disposition = %q, want export attachment", got)
+	}
 	body := rec.Body.String()
 	for _, want := range []string{`"version": "1"`, `"applications"`, `"documents"`, `"contacts"`} {
 		if !strings.Contains(body, want) {
@@ -1260,6 +1406,9 @@ func TestDocumentsShowEmbedsInlinePDF(t *testing.T) {
 		`<a class="brand-link" href="/" aria-label="JobHunt OS dashboard">JobHunt OS</a>`,
 		`src="/documents/doc_1/download"`,
 		`href="/documents/doc_1/download"`,
+		`href="/documents/doc_1/download?download=1"`,
+		`sandbox="allow-same-origin allow-scripts"`,
+		`referrerpolicy="same-origin"`,
 		"Platform resume",
 	} {
 		if !strings.Contains(body, want) {
@@ -1302,11 +1451,62 @@ func TestDocumentsDownloadAllowsInAppPreviewFrame(t *testing.T) {
 	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "inline") {
 		t.Fatalf("Content-Disposition = %q, want inline", got)
 	}
-	if got := rec.Header().Get("X-Frame-Options"); got != "" {
-		t.Fatalf("X-Frame-Options = %q, want empty for in-app preview", got)
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
 	}
-	if got := rec.Header().Get("Content-Security-Policy"); strings.Contains(got, "frame-ancestors") {
-		t.Fatalf("Content-Security-Policy = %q, want no frame-ancestors for in-app preview", got)
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := rec.Header().Get("X-Frame-Options"); got != "SAMEORIGIN" {
+		t.Fatalf("X-Frame-Options = %q, want SAMEORIGIN for in-app preview", got)
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); got != documentPreviewCSP {
+		t.Fatalf("Content-Security-Policy = %q, want %q", got, documentPreviewCSP)
+	}
+}
+
+func TestDocumentsDownloadAttachmentOption(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	documentPath := filepath.Join(dataDir, "documents", "library", "doc_1.pdf")
+	if err := os.MkdirAll(filepath.Dir(documentPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(documentPath, []byte("%PDF-1.7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	document := model.Document{
+		ID:          "doc_1",
+		Name:        "Platform resume",
+		Type:        model.DocumentResume,
+		StoragePath: "documents/library/doc_1.pdf",
+		UpdatedAt:   time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC),
+	}
+	req := httptest.NewRequest(http.MethodGet, "/documents/doc_1/download?download=1", nil)
+	rec := httptest.NewRecorder()
+	NewWithOptions(&fakeApplicationStore{
+		documents: []model.Document{document},
+	}, Options{DataDir: dataDir}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "attachment") {
+		t.Fatalf("Content-Disposition = %q, want attachment", got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := rec.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("X-Frame-Options = %q, want DENY", got)
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); got != documentDownloadCSP {
+		t.Fatalf("Content-Security-Policy = %q, want %q", got, documentDownloadCSP)
 	}
 }
 
@@ -1800,7 +2000,8 @@ func TestSecurityHeadersArePresent(t *testing.T) {
 	rec := request(http.MethodGet, "/")
 
 	wantHeaders := map[string]string{
-		"Content-Security-Policy": "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+		"Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'self'; frame-ancestors 'none'; form-action 'self'",
+		"Permissions-Policy":      "camera=(), microphone=(), geolocation=()",
 		"X-Content-Type-Options":  "nosniff",
 		"X-Frame-Options":         "DENY",
 		"Referrer-Policy":         "same-origin",
@@ -1820,6 +2021,29 @@ func request(method, target string) *httptest.ResponseRecorder {
 	New(nil).ServeHTTP(rec, req)
 
 	return rec
+}
+
+func requestWithOptions(method, target string, appStore store.ApplicationStore, opts Options) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, target, nil)
+	rec := httptest.NewRecorder()
+
+	NewWithOptions(appStore, opts).ServeHTTP(rec, req)
+
+	return rec
+}
+
+func testAuthOptions(t *testing.T) (AuthOptions, string) {
+	t.Helper()
+
+	password := t.Name()
+	passwordHash, err := auth.HashPassword(password, []byte("0123456789abcdef"), auth.DefaultIterations)
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	return AuthOptions{
+		Username:     testAuthUsername,
+		PasswordHash: passwordHash,
+	}, password
 }
 
 func requestWithStore(method, target string, body *strings.Reader, appStore store.ApplicationStore) *httptest.ResponseRecorder {

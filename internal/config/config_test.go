@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/firblab-blog/jobhunt-os/internal/auth"
 )
 
 func TestLoadDefaultsToLoopback(t *testing.T) {
@@ -22,6 +24,12 @@ func TestLoadDefaultsToLoopback(t *testing.T) {
 	}
 	if cfg.DataDir == "" {
 		t.Fatalf("DataDir is empty")
+	}
+	if cfg.AuthUsername != "" || cfg.AuthPasswordHash != "" {
+		t.Fatalf("auth config = %q/%q, want empty", cfg.AuthUsername, cfg.AuthPasswordHash)
+	}
+	if cfg.SecureCookies {
+		t.Fatalf("SecureCookies = true, want false")
 	}
 	if cfg.ReadTimeout != 5*time.Second {
 		t.Fatalf("ReadTimeout = %s, want 5s", cfg.ReadTimeout)
@@ -50,6 +58,79 @@ func TestLoadParsesEnv(t *testing.T) {
 	}
 	if !cfg.AllowNetwork {
 		t.Fatalf("AllowNetwork = false, want true")
+	}
+}
+
+func TestLoadParsesSecureCookiesEnv(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load(env(map[string]string{
+		EnvSecureCookies: "true",
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !cfg.SecureCookies {
+		t.Fatalf("SecureCookies = false, want true")
+	}
+}
+
+func TestLoadRejectsInvalidSecureCookies(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Load(env(map[string]string{EnvSecureCookies: "sometimes"})); err == nil {
+		t.Fatalf("Load() error = nil, want error")
+	}
+}
+
+func TestLoadParsesAuthEnv(t *testing.T) {
+	t.Parallel()
+
+	passwordHash := testPasswordHash(t)
+	cfg, err := Load(env(map[string]string{
+		EnvAuthUsername:     " avery ",
+		EnvAuthPasswordHash: " " + passwordHash + " ",
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.AuthUsername != "avery" {
+		t.Fatalf("AuthUsername = %q, want avery", cfg.AuthUsername)
+	}
+	if cfg.AuthPasswordHash != passwordHash {
+		t.Fatalf("AuthPasswordHash = %q, want configured hash", cfg.AuthPasswordHash)
+	}
+}
+
+func TestLoadRejectsPartialAuthEnv(t *testing.T) {
+	t.Parallel()
+
+	for name, values := range map[string]map[string]string{
+		"username only": {EnvAuthUsername: "avery"},
+		"hash only":     {EnvAuthPasswordHash: testPasswordHash(t)},
+	} {
+		name := name
+		values := values
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if _, err := Load(env(values)); err == nil {
+				t.Fatalf("Load() error = nil, want error")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidAuthPasswordHash(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Load(env(map[string]string{
+		EnvAuthUsername:     "avery",
+		EnvAuthPasswordHash: "not-a-pbkdf2-hash",
+	})); err == nil {
+		t.Fatalf("Load() error = nil, want error")
 	}
 }
 
@@ -231,4 +312,14 @@ func env(values map[string]string) func(string) string {
 	return func(key string) string {
 		return values[key]
 	}
+}
+
+func testPasswordHash(t *testing.T) string {
+	t.Helper()
+
+	hash, err := auth.HashPassword(t.Name(), []byte("0123456789abcdef"), auth.DefaultIterations)
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	return hash
 }

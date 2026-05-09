@@ -16,7 +16,7 @@ func TestCSRFTokenGenerationAndValidation(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	rec := httptest.NewRecorder()
 
-	token, err := issueCSRFToken(rec, now)
+	token, err := issueCSRFToken(rec, now, false)
 	if err != nil {
 		t.Fatalf("issueCSRFToken() error = %v", err)
 	}
@@ -40,6 +40,9 @@ func TestCSRFTokenGenerationAndValidation(t *testing.T) {
 	}
 	if cookie.SameSite != http.SameSiteLaxMode {
 		t.Fatalf("cookie SameSite = %v, want Lax", cookie.SameSite)
+	}
+	if cookie.Secure {
+		t.Fatalf("cookie Secure = true, want false by default")
 	}
 
 	field := string(csrfField(token))

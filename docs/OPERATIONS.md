@@ -39,7 +39,8 @@ docker compose down
 
 Back up `./data` before upgrades or other risky maintenance. The JSON export is
 useful for inspection and migration work, but it is not a full restore mechanism
-for the running app.
+for the running app. It also contains sensitive job-hunt data, so store exports
+with the same care as database backups.
 
 ## Health Check
 
@@ -66,7 +67,10 @@ volumes:
 
 That means application data, including the SQLite database and local files,
 lives in the host `./data` directory. Keep backups of that directory outside the
-install directory, preferably on another disk or backup service.
+install directory, preferably on another disk or backup service. Encrypt
+long-lived or off-machine backups when possible; common choices include
+encrypted disks, Restic, Borg, Kopia, GnuPG, age, or an encrypted storage
+provider.
 
 Expected layout:
 
@@ -80,6 +84,11 @@ data/
 The `jobhunt-os-init` Compose helper creates `documents/` and `tmp/` before the
 app starts and sets ownership for `JOBHUNT_UID`/`JOBHUNT_GID` from `.env` when
 those values are present.
+
+When restoring from an archive, use the restore steps in
+[BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md) so file permissions are preserved
+and Linux ownership is either kept or intentionally remapped for the target
+host.
 
 ## Asking For Help
 

@@ -39,8 +39,15 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:         cfg.Addr,
-		Handler:      server.NewWithOptions(sqlite.NewStore(db), server.Options{DataDir: cfg.DataDir}),
+		Addr: cfg.Addr,
+		Handler: server.NewWithOptions(sqlite.NewStore(db), server.Options{
+			DataDir:       cfg.DataDir,
+			SecureCookies: cfg.SecureCookies,
+			Auth: server.AuthOptions{
+				Username:     cfg.AuthUsername,
+				PasswordHash: cfg.AuthPasswordHash,
+			},
+		}),
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
 		IdleTimeout:  cfg.IdleTimeout,

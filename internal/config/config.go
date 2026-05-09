@@ -9,12 +9,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/firblab-blog/jobhunt-os/internal/auth"
 )
 
 const (
-	EnvAddr         = "JOBHUNT_ADDR"
-	EnvAllowNetwork = "JOBHUNT_ALLOW_NETWORK"
-	EnvDataDir      = "JOBHUNT_DATA_DIR"
+	EnvAddr             = "JOBHUNT_ADDR"
+	EnvAllowNetwork     = "JOBHUNT_ALLOW_NETWORK"
+	EnvDataDir          = "JOBHUNT_DATA_DIR"
+	EnvAuthUsername     = "JOBHUNT_AUTH_USERNAME"
+	EnvAuthPasswordHash = "JOBHUNT_AUTH_PASSWORD_HASH"
+	EnvSecureCookies    = "JOBHUNT_SECURE_COOKIES"
 
 	DefaultAddr = "127.0.0.1:8080"
 )
@@ -25,12 +30,15 @@ const (
 )
 
 type Config struct {
-	Addr         string
-	AllowNetwork bool
-	DataDir      string
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
-	IdleTimeout  time.Duration
+	Addr             string
+	AllowNetwork     bool
+	DataDir          string
+	AuthUsername     string
+	AuthPasswordHash string
+	SecureCookies    bool
+	ReadTimeout      time.Duration
+	WriteTimeout     time.Duration
+	IdleTimeout      time.Duration
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -78,6 +86,31 @@ func load(getenv func(string) string, opts loadOptions) (Config, error) {
 
 	if err := ValidateAddr(cfg.Addr, cfg.AllowNetwork); err != nil {
 		return Config{}, err
+	}
+
+	secureCookies := strings.TrimSpace(getenv(EnvSecureCookies))
+	if secureCookies != "" {
+		parsed, err := strconv.ParseBool(secureCookies)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s must be a boolean: %w", EnvSecureCookies, err)
+		}
+		cfg.SecureCookies = parsed
+	}
+
+	authUsername := strings.TrimSpace(getenv(EnvAuthUsername))
+	authPasswordHash := strings.TrimSpace(getenv(EnvAuthPasswordHash))
+	switch {
+	case authUsername == "" && authPasswordHash == "":
+	case authUsername == "":
+		return Config{}, fmt.Errorf("%s is required when %s is set", EnvAuthUsername, EnvAuthPasswordHash)
+	case authPasswordHash == "":
+		return Config{}, fmt.Errorf("%s is required when %s is set", EnvAuthPasswordHash, EnvAuthUsername)
+	default:
+		if _, err := auth.ParsePasswordHash(authPasswordHash); err != nil {
+			return Config{}, fmt.Errorf("%s must be a %s password hash: %w", EnvAuthPasswordHash, auth.Scheme, err)
+		}
+		cfg.AuthUsername = authUsername
+		cfg.AuthPasswordHash = authPasswordHash
 	}
 
 	return cfg, nil

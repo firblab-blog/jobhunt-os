@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,6 +25,7 @@ import (
 	"time"
 
 	jobhuntos "github.com/firblab-blog/jobhunt-os"
+	"github.com/firblab-blog/jobhunt-os/internal/auth"
 	"github.com/firblab-blog/jobhunt-os/internal/model"
 	"github.com/firblab-blog/jobhunt-os/internal/store"
 )
@@ -36,19 +39,36 @@ const (
 	themeSystem                    = "system"
 	themeLight                     = "light"
 	themeDark                      = "dark"
+	appCSP                         = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'self'; frame-ancestors 'none'; form-action 'self'"
+	documentPreviewCSP             = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'self'"
+	documentDownloadCSP            = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'"
 )
 
 type Server struct {
-	mux       *http.ServeMux
-	templates *template.Template
-	store     store.ApplicationStore
-	dataDir   string
+	mux           *http.ServeMux
+	templates     *template.Template
+	store         store.ApplicationStore
+	dataDir       string
+	auth          *basicAuth
+	secureCookies bool
 }
 
 const closedApplicationStatusFilter = "closed"
 
 type Options struct {
-	DataDir string
+	DataDir       string
+	Auth          AuthOptions
+	SecureCookies bool
+}
+
+type AuthOptions struct {
+	Username     string
+	PasswordHash string
+}
+
+type basicAuth struct {
+	username string
+	hash     auth.PasswordHash
 }
 
 type dashboardData struct {
@@ -355,6 +375,7 @@ type documentShowData struct {
 	Document    model.Document
 	TypeLabel   string
 	Updated     string
+	PreviewURL  string
 	DownloadURL string
 }
 
@@ -436,10 +457,18 @@ func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler 
 	templates := template.Must(template.New("").Funcs(templateFuncs()).ParseFS(jobhuntos.Assets, "web/templates/*.html"))
 
 	s := &Server{
-		mux:       http.NewServeMux(),
-		templates: templates,
-		store:     appStore,
-		dataDir:   strings.TrimSpace(opts.DataDir),
+		mux:           http.NewServeMux(),
+		templates:     templates,
+		store:         appStore,
+		dataDir:       strings.TrimSpace(opts.DataDir),
+		secureCookies: opts.SecureCookies,
+	}
+	if strings.TrimSpace(opts.Auth.Username) != "" || strings.TrimSpace(opts.Auth.PasswordHash) != "" {
+		authenticator, err := newBasicAuth(opts.Auth)
+		if err != nil {
+			panic(err)
+		}
+		s.auth = authenticator
 	}
 
 	staticFiles, err := fs.Sub(jobhuntos.Assets, "web/static")
@@ -491,7 +520,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	start := time.Now()
 
-	s.mux.ServeHTTP(rec, r)
+	if s.requiresAuth(r) && !s.auth.authorize(r) {
+		requireBasicAuth(rec)
+	} else {
+		s.mux.ServeHTTP(rec, r)
+	}
 
 	slog.Info("request",
 		"method", r.Method,
@@ -499,6 +532,48 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"status", rec.status,
 		"duration", time.Since(start),
 	)
+}
+
+func newBasicAuth(opts AuthOptions) (*basicAuth, error) {
+	username := strings.TrimSpace(opts.Username)
+	passwordHash := strings.TrimSpace(opts.PasswordHash)
+	if username == "" || passwordHash == "" {
+		return nil, errors.New("auth username and password hash are both required")
+	}
+	hash, err := auth.ParsePasswordHash(passwordHash)
+	if err != nil {
+		return nil, err
+	}
+	return &basicAuth{username: username, hash: hash}, nil
+}
+
+func (s *Server) requiresAuth(r *http.Request) bool {
+	return s.auth != nil && r.URL.Path != "/healthz"
+}
+
+func (a *basicAuth) authorize(r *http.Request) bool {
+	username, password, ok := r.BasicAuth()
+	if !ok {
+		return false
+	}
+
+	usernameOK := constantTimeStringEqual(username, a.username)
+	passwordOK := 0
+	if a.hash.Verify(password) {
+		passwordOK = 1
+	}
+	return usernameOK&passwordOK == 1
+}
+
+func constantTimeStringEqual(a, b string) int {
+	aHash := sha256.Sum256([]byte(a))
+	bHash := sha256.Sum256([]byte(b))
+	return subtle.ConstantTimeCompare(aHash[:], bHash[:])
+}
+
+func requireBasicAuth(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Basic realm="JobHunt OS", charset="UTF-8"`)
+	http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 }
 
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
@@ -519,6 +594,7 @@ func (s *Server) themeUpdate(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   themeCookieMaxAge,
 		HttpOnly: true,
+		Secure:   s.secureCookies,
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -1574,7 +1650,8 @@ func (s *Server) documentsShow(w http.ResponseWriter, r *http.Request) {
 		Document:    document,
 		TypeLabel:   documentTypeLabel(document.Type),
 		Updated:     longDate(document.UpdatedAt),
-		DownloadURL: documentDownloadURL(document),
+		PreviewURL:  documentDownloadURL(document),
+		DownloadURL: documentAttachmentURL(document),
 	}, http.StatusOK)
 }
 
@@ -1604,10 +1681,21 @@ func (s *Server) documentsDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	disposition := "inline"
+	documentCSP := documentPreviewCSP
+	frameOptions := "SAMEORIGIN"
+	if r.URL.Query().Get("download") == "1" {
+		disposition = "attachment"
+		documentCSP = documentDownloadCSP
+		frameOptions = "DENY"
+	}
+
 	w.Header().Set("Content-Type", "application/pdf")
-	w.Header().Set("Content-Disposition", `inline; filename="`+downloadFileName(document.Name)+`.pdf"`)
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'")
-	w.Header().Del("X-Frame-Options")
+	w.Header().Set("Content-Disposition", disposition+`; filename="`+downloadFileName(document.Name)+`.pdf"`)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Security-Policy", documentCSP)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", frameOptions)
 	http.ServeFile(w, r, path)
 }
 
@@ -1688,6 +1776,7 @@ func (s *Server) exportJSON(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="jobhunt-os-export.json"`)
+	w.Header().Set("Cache-Control", "no-store")
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(snapshot); err != nil {
@@ -1976,7 +2065,7 @@ func (s *Server) applicationsUpdatePosting(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) renderApplicationForm(w http.ResponseWriter, r *http.Request, values applicationFormValues, errors formErrors, status int) {
-	token, err := issueCSRFToken(w, time.Now())
+	token, err := issueCSRFToken(w, time.Now(), s.secureCookies)
 	if err != nil {
 		serverError(w, r, err)
 		return
@@ -1992,7 +2081,7 @@ func (s *Server) renderApplicationForm(w http.ResponseWriter, r *http.Request, v
 }
 
 func (s *Server) renderApplicationDetail(w http.ResponseWriter, r *http.Request, app model.Application, events []model.ApplicationEvent, documents []model.ApplicationDocument, eventForm applicationEventFormData, statusForm applicationStatusFormData, postingForm postingFormData, status int) {
-	token, err := issueCSRFToken(w, time.Now())
+	token, err := issueCSRFToken(w, time.Now(), s.secureCookies)
 	if err != nil {
 		serverError(w, r, err)
 		return
@@ -2036,7 +2125,7 @@ func (s *Server) renderApplicationDetail(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) renderDocumentsIndex(w http.ResponseWriter, r *http.Request, documents []model.Document, values documentFormValues, errors formErrors, status int) {
-	token, err := issueCSRFToken(w, time.Now())
+	token, err := issueCSRFToken(w, time.Now(), s.secureCookies)
 	if err != nil {
 		serverError(w, r, err)
 		return
@@ -2063,7 +2152,7 @@ func (s *Server) renderDocumentsIndex(w http.ResponseWriter, r *http.Request, do
 }
 
 func (s *Server) renderContactsIndex(w http.ResponseWriter, r *http.Request, contacts []model.Contact, values contactFormValues, errors formErrors, status int) {
-	token, err := issueCSRFToken(w, time.Now())
+	token, err := issueCSRFToken(w, time.Now(), s.secureCookies)
 	if err != nil {
 		serverError(w, r, err)
 		return
@@ -2766,6 +2855,13 @@ func documentDownloadURL(document model.Document) string {
 	return ""
 }
 
+func documentAttachmentURL(document model.Document) string {
+	if downloadURL := documentDownloadURL(document); downloadURL != "" {
+		return downloadURL + "?download=1"
+	}
+	return ""
+}
+
 func documentViewURL(document model.Document) string {
 	if documentDownloadURL(document) != "" {
 		return "/documents/" + document.ID
@@ -3011,7 +3107,8 @@ func handleFormParseError(w http.ResponseWriter, err error) {
 }
 
 func setSecurityHeaders(h http.Header) {
-	h.Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+	h.Set("Content-Security-Policy", appCSP)
+	h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "same-origin")

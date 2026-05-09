@@ -3,9 +3,19 @@
 The recommended pattern is to keep JobHunt OS bound to `127.0.0.1` on the host
 and let a reverse proxy handle HTTPS and the public hostname.
 
-JobHunt OS has no built-in authentication. If the reverse proxy makes the app
-reachable by other people or by the public internet, add authentication at the
-proxy layer.
+JobHunt OS has optional built-in HTTP Basic authentication through
+`JOBHUNT_AUTH_USERNAME` and `JOBHUNT_AUTH_PASSWORD_HASH`. If the reverse proxy
+makes the app reachable by other people or by the public internet, enable
+built-in authentication or add authentication at the proxy layer.
+
+Built-in HTTP Basic authentication is not transport security. It is suitable
+behind the default localhost binding, behind an HTTPS reverse proxy, over a VPN,
+or over another encrypted/trusted channel. Do not rely on it over plain HTTP on
+an untrusted network.
+
+For HTTPS reverse-proxy deployments, also set `JOBHUNT_SECURE_COOKIES=true`.
+This marks the CSRF and theme cookies as `Secure`, so browsers only send them
+over HTTPS. Keep it disabled for plain HTTP localhost access.
 
 The default Compose file already uses this host binding:
 
@@ -36,9 +46,12 @@ With this setup:
 - Caddy manages HTTPS for the public site.
 - JobHunt OS remains reachable only on `127.0.0.1:8080` from the host.
 - Docker does not publish JobHunt OS directly on every network interface.
+- `JOBHUNT_SECURE_COOKIES=true` is appropriate because users access the app
+  over HTTPS.
 
-If the hostname is not private, add authentication. For example, Caddy can use
-`basicauth` with a hashed password:
+If the hostname is not private, add authentication. You can enable JobHunt OS
+built-in auth in the app environment, or let Caddy handle it with `basicauth`
+and a hashed password:
 
 ```caddyfile
 jobs.example.com {
@@ -51,6 +64,34 @@ jobs.example.com {
 
 Generate the password hash with Caddy tooling and store the Caddyfile according
 to your host's operational policy.
+
+## Brute-Force Protection
+
+JobHunt OS does not currently include in-process login throttling. For remote
+access, put the brute-force controls at the reverse proxy or host firewall where
+they can see client IPs and block before requests reach the app.
+
+For Nginx, a small baseline is:
+
+```nginx
+http {
+	limit_req_zone $binary_remote_addr zone=jobhunt_auth:10m rate=5r/m;
+
+	server {
+		location / {
+			limit_req zone=jobhunt_auth burst=10 nodelay;
+			proxy_pass http://127.0.0.1:8080;
+		}
+	}
+}
+```
+
+For Caddy, use access logs plus fail2ban, or a maintained Caddy rate-limit
+plugin if your host already supports custom Caddy builds. A practical fail2ban
+setup should watch the reverse proxy access log for repeated `401` responses
+from the same client and ban that source at the host firewall for a short window
+such as 10 to 30 minutes. Tune thresholds for your own access pattern so a
+mistyped password does not lock you out.
 
 ## Avoid Public Docker Port Binding
 
@@ -68,5 +109,7 @@ That form can bind the app on all host interfaces. Prefer keeping the app on
 ## Security Note
 
 JobHunt OS is local-first and has no multi-user security model. If you expose it
-to the internet, put it behind a reverse proxy with authentication, keep Docker
-and the host patched, and verify that the hostname is intended to be reachable.
+to the internet, put it behind HTTPS, require authentication at the proxy or app
+layer, add rate limiting or fail2ban-style blocking for repeated failures, keep
+Docker and the host patched, and verify that the hostname is intended to be
+reachable.

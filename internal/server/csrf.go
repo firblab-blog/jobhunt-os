@@ -38,7 +38,7 @@ func mustCSRFSecret() []byte {
 	return secret
 }
 
-func issueCSRFToken(w http.ResponseWriter, now time.Time) (string, error) {
+func issueCSRFToken(w http.ResponseWriter, now time.Time, secure bool) (string, error) {
 	token, err := newCSRFToken(now)
 	if err != nil {
 		return "", err
@@ -50,6 +50,7 @@ func issueCSRFToken(w http.ResponseWriter, now time.Time) (string, error) {
 		Path:     "/",
 		Expires:  now.Add(csrfTokenTTL),
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 

@@ -1,9 +1,16 @@
 .git
 .gitignore
 .gitlab-ci.yml
+.env
+.env.*
+!.env.example
 .secrets
+.secrets/
+secrets/
 bin
 coverage
+data
+docs/SECURITY_AUDIT.md
 dist
 tmp
 *.db
