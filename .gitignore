@@ -7,5 +7,7 @@
 /dist/
 /coverage.out
 /tmp/
+/AGENTS.md
+/docs/SECURITY_AUDIT.md
 /fixtures/**/*.yaml
 !/fixtures/**/sample-*.yaml
