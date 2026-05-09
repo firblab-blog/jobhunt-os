@@ -55,7 +55,8 @@ func TestHomeRendersDashboard(t *testing.T) {
 		`href="/backup"`,
 		`href="/applications/new"`,
 		`data-status="interviewing"`,
-		"Prep system design notes for Northstar Systems.",
+		"Pipeline flow",
+		"16 total applications",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body does not contain %q", want)
@@ -78,8 +79,8 @@ func TestHomeRendersEmptyDashboardStates(t *testing.T) {
 		t.Fatalf("ExecuteTemplate() error = %v", err)
 	}
 	got := body.String()
-	if !strings.Contains(got, "No next actions due today.") {
-		t.Fatalf("body does not contain empty next actions state")
+	if !strings.Contains(got, "No pipeline data yet.") {
+		t.Fatalf("body does not contain empty pipeline pulse state")
 	}
 	if !strings.Contains(got, "No active applications yet.") {
 		t.Fatalf("body does not contain empty application state")
@@ -309,10 +310,10 @@ func TestHomeRendersDashboardFromStore(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"Follow up with recruiter for Northstar Systems.",
-		`href="/applications/app_1"`,
-		"High priority",
-		"Due today",
+		"Pipeline pulse",
+		"1 total applications",
+		`data-status="applied"`,
+		`href="/applications?status=applied"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body does not contain %q", want)

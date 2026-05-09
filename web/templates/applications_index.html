@@ -56,14 +56,69 @@
         </form>
 
         <div class="applications-view-shell">
-          <input class="applications-view-input" id="applications-view-table" name="applications-view" type="radio" checked>
-          <input class="applications-view-input" id="applications-view-flow" name="applications-view" type="radio">
-          <div class="applications-view-switch" aria-label="Applications view">
-            <label for="applications-view-table">Table</label>
-            <label for="applications-view-flow">Flow</label>
-          </div>
+          <section class="applications-flow-view" aria-label="Applications flow">
+            <div class="applications-flow">
+              <div class="applications-flow-header">
+                <div>
+                  <p class="eyebrow">Current-state flow</p>
+                  <h2>Pipeline diagnostic</h2>
+                  <p class="applications-count">{{ .Flow.TotalApplications }} shown in this view</p>
+                </div>
+                <div class="applications-flow-stats" aria-label="Flow totals">
+                  <div>
+                    <strong>{{ .Flow.TotalApplications }}</strong>
+                    <span>Total</span>
+                  </div>
+                  <div>
+                    <strong>{{ .Flow.ActiveApplications }}</strong>
+                    <span>Active</span>
+                  </div>
+                  <div>
+                    <strong>{{ .Flow.ClosedApplications }}</strong>
+                    <span>Closed</span>
+                  </div>
+                </div>
+              </div>
 
-          <section class="applications-view-pane applications-table-view" id="applications-table-pane" aria-label="Applications table">
+              <div class="applications-flow-map">
+                <ol class="applications-flow-stages" aria-label="Current application funnel by status group">
+                  {{ range .Flow.Stages }}
+                  <li class="applications-flow-stage{{ if .Closed }} is-closed{{ end }}{{ if .Terminal }} is-terminal{{ end }}{{ if not .Count }} is-empty{{ end }}" data-status="{{ .Key }}" style="--flow-share: {{ .Share }}%; --flow-ribbon: {{ .Share }};">
+                    <a class="applications-flow-node" href="{{ .Href }}">
+                      <span class="applications-flow-node-label">{{ .Label }}</span>
+                      <strong>{{ .Count }}</strong>
+                      <span class="applications-flow-node-share">{{ .Share }}%</span>
+                      <span class="applications-flow-meter" aria-hidden="true"><span></span></span>
+                    </a>
+                    {{ if .Closed }}
+                    <ul class="applications-flow-outcomes" aria-label="Closed application outcomes">
+                      {{ range .Statuses }}
+                      <li style="--flow-share: {{ .Share }}%; --flow-ribbon: {{ .Share }};">
+                        <a href="{{ .Href }}">
+                          <span>{{ .Label }}</span>
+                          <strong>{{ .Count }}</strong>
+                          <small>{{ .Share }}%</small>
+                          <span class="applications-flow-meter" aria-hidden="true"><span></span></span>
+                        </a>
+                      </li>
+                      {{ end }}
+                    </ul>
+                    {{ end }}
+                  </li>
+                  {{ end }}
+                </ol>
+              </div>
+
+              {{ if not .Flow.HasApplications }}
+              <div class="dashboard-empty-note applications-flow-empty">
+                <strong>No flow data yet.</strong>
+                <span>Add an application to start filling the diagnostic view.</span>
+              </div>
+              {{ end }}
+            </div>
+          </section>
+
+          <section class="applications-table-view" aria-label="Applications table">
             {{ if .Applications }}
             <div class="applications-table-wrap">
               <table class="applications-table">
@@ -123,68 +178,6 @@
               {{ end }}
             </div>
             {{ end }}
-          </section>
-
-          <section class="applications-view-pane applications-flow-view" id="applications-flow-pane" aria-label="Applications flow">
-            <div class="applications-flow">
-              <div class="applications-flow-header">
-                <div>
-                  <p class="eyebrow">Current-state flow</p>
-                  <h2>Pipeline diagnostic</h2>
-                  <p class="applications-count">{{ .Flow.TotalApplications }} shown in this view</p>
-                </div>
-                <div class="applications-flow-stats" aria-label="Flow totals">
-                  <div>
-                    <strong>{{ .Flow.TotalApplications }}</strong>
-                    <span>Total</span>
-                  </div>
-                  <div>
-                    <strong>{{ .Flow.ActiveApplications }}</strong>
-                    <span>Active</span>
-                  </div>
-                  <div>
-                    <strong>{{ .Flow.ClosedApplications }}</strong>
-                    <span>Closed</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="applications-flow-map">
-                <ol class="applications-flow-stages" aria-label="Current application funnel by status group">
-                  {{ range .Flow.Stages }}
-                  <li class="applications-flow-stage{{ if .Closed }} is-closed{{ end }}{{ if .Terminal }} is-terminal{{ end }}{{ if not .Count }} is-empty{{ end }}" data-status="{{ .Key }}" style="--flow-share: {{ .Share }}%;">
-                    <a class="applications-flow-node" href="{{ .Href }}">
-                      <span class="applications-flow-node-label">{{ .Label }}</span>
-                      <strong>{{ .Count }}</strong>
-                      <span class="applications-flow-node-share">{{ .Share }}%</span>
-                      <span class="applications-flow-meter" aria-hidden="true"><span></span></span>
-                    </a>
-                    {{ if .Closed }}
-                    <ul class="applications-flow-outcomes" aria-label="Closed application outcomes">
-                      {{ range .Statuses }}
-                      <li style="--flow-share: {{ .Share }}%;">
-                        <a href="{{ .Href }}">
-                          <span>{{ .Label }}</span>
-                          <strong>{{ .Count }}</strong>
-                          <small>{{ .Share }}%</small>
-                          <span class="applications-flow-meter" aria-hidden="true"><span></span></span>
-                        </a>
-                      </li>
-                      {{ end }}
-                    </ul>
-                    {{ end }}
-                  </li>
-                  {{ end }}
-                </ol>
-              </div>
-
-              {{ if not .Flow.HasApplications }}
-              <div class="dashboard-empty-note applications-flow-empty">
-                <strong>No flow data yet.</strong>
-                <span>Add an application to start filling the diagnostic view.</span>
-              </div>
-              {{ end }}
-            </div>
           </section>
         </div>
       </section>

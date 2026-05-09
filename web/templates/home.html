@@ -34,76 +34,41 @@
           <a class="dashboard-card-link" href="/applications">View applications</a>
         </div>
 
-        <div class="pipeline-pulse-layout">
-          <section class="pipeline-pulse-flow" aria-labelledby="pipeline-flow-heading">
-            <div class="pipeline-pulse-section-header">
-              <h3 id="pipeline-flow-heading">Pipeline flow</h3>
-              <p>{{ .PipelinePulse.TotalApplications }} total applications</p>
-            </div>
-            <ol class="pipeline-pulse-stages" aria-label="Application pipeline by display group">
-              {{ range .PipelinePulse.Groups }}
-              <li class="pipeline-pulse-stage{{ if .Closed }} is-closed{{ end }}{{ if not .Count }} is-empty{{ end }}" data-status="{{ .Key }}">
-                <a class="pipeline-pulse-stage-link" href="{{ .Href }}">
-                  <span>{{ .Label }}</span>
-                  <strong>{{ .Count }}</strong>
-                  <small>{{ .Share }}%</small>
-                </a>
-                {{ if .Closed }}
-                <ul class="pipeline-pulse-statuses" aria-label="Closed application outcomes">
-                  {{ range .Statuses }}
-                  <li>
-                    <a href="{{ .Href }}">
-                      <span>{{ .Label }}</span>
-                      <strong>{{ .Count }}</strong>
-                    </a>
-                  </li>
-                  {{ end }}
-                </ul>
+        <section class="pipeline-pulse-flow" aria-labelledby="pipeline-flow-heading">
+          <div class="pipeline-pulse-section-header">
+            <h3 id="pipeline-flow-heading">Pipeline flow</h3>
+            <p>{{ .PipelinePulse.TotalApplications }} total applications</p>
+          </div>
+          <ol class="pipeline-pulse-stages" aria-label="Application pipeline by display group">
+            {{ range .PipelinePulse.Groups }}
+            <li class="pipeline-pulse-stage{{ if .Closed }} is-closed{{ end }}{{ if not .Count }} is-empty{{ end }}" data-status="{{ .Key }}" style="--pulse-share: {{ .Share }}%; --pulse-ribbon: {{ .Share }};">
+              <a class="pipeline-pulse-stage-link" href="{{ .Href }}">
+                <span>{{ .Label }}</span>
+                <strong>{{ .Count }}</strong>
+                <small>{{ .Share }}%</small>
+              </a>
+              {{ if .Closed }}
+              <ul class="pipeline-pulse-statuses" aria-label="Closed application outcomes">
+                {{ range .Statuses }}
+                <li>
+                  <a href="{{ .Href }}">
+                    <span>{{ .Label }}</span>
+                    <strong>{{ .Count }}</strong>
+                  </a>
+                </li>
                 {{ end }}
-              </li>
+              </ul>
               {{ end }}
-            </ol>
-            {{ if not .PipelinePulse.HasApplications }}
-            <div class="dashboard-empty-note pipeline-pulse-empty">
-              <strong>No pipeline data yet.</strong>
-              <span>Add an application to start building the board.</span>
-            </div>
+            </li>
             {{ end }}
-          </section>
-
-          <section class="pipeline-pulse-action" aria-labelledby="pipeline-action-heading">
-            <div class="pipeline-pulse-section-header">
-              <p class="eyebrow">Today's move</p>
-              <h3 id="pipeline-action-heading">Next useful action</h3>
-            </div>
-            {{ if .NextActions }}
-            <ol class="pipeline-pulse-actions" aria-label="Next actions due today">
-              {{ range .NextActions }}
-              <li>
-                <article class="pipeline-pulse-next-action">
-                  <span class="queue-label">{{ .State }}</span>
-                  <h4>{{ if .Href }}<a href="{{ .Href }}">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}</h4>
-                  <p>{{ .Meta }}</p>
-                </article>
-              </li>
-              {{ end }}
-            </ol>
-            <div class="button-row">
-              <a class="button" href="/follow-ups">Open follow-ups</a>
-              <a class="button secondary" href="/applications">Review applications</a>
-            </div>
-            {{ else }}
-            <div class="pipeline-pulse-action-empty">
-              <h4>No next actions due today.</h4>
-              <p>Pick the most promising application and add one concrete follow-up.</p>
-              <div class="button-row">
-                <a class="button" href="/applications">Review applications</a>
-                <a class="button secondary" href="/applications/new">New application</a>
-              </div>
-            </div>
-            {{ end }}
-          </section>
-        </div>
+          </ol>
+          {{ if not .PipelinePulse.HasApplications }}
+          <div class="dashboard-empty-note pipeline-pulse-empty">
+            <strong>No pipeline data yet.</strong>
+            <span>Add an application to start building the board.</span>
+          </div>
+          {{ end }}
+        </section>
 
         <ul class="pipeline-pulse-signals" aria-label="Dashboard signals">
           {{ range .PipelinePulse.Signals }}
