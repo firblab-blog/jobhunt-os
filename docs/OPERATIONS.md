@@ -1,7 +1,6 @@
 # Operations
 
-JobHunt OS is intended to be boring to run with Docker Compose. The durable
-state for the provided Compose install lives in `./data` next to
+For the provided Docker Compose install, durable state lives in `./data` next to
 `docker-compose.yml`.
 
 ## Common Commands
@@ -86,7 +85,7 @@ those values are present.
 
 When asking for help, collect:
 
-- JobHunt OS image tag, such as `latest`, `v0.1.0`, or `sha-<shortsha>`
+- JobHunt OS image tag, such as `latest`, `v0.1.4`, or `sha-<shortsha>`
 - Docker and Docker Compose versions
 - Output from `docker compose ps`
 - Relevant `docker compose logs -f` lines from startup or the failure
@@ -97,3 +96,9 @@ Do not share private resumes, cover letters, applications, recruiter messages,
 uploaded documents, or raw database files. Redact names, email addresses, phone
 numbers, company-specific notes, tokens, hostnames, and paths that reveal private
 information before posting logs or screenshots.
+
+## Restart Behavior
+
+CSRF tokens are signed with a process-local secret. After restarting JobHunt OS,
+forms opened before the restart can fail with `invalid CSRF token`. Refresh the
+page before submitting a form after a restart.

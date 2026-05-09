@@ -1,41 +1,32 @@
 # Roadmap
 
-## Phase 0: Planning Baseline
+## Current Scope in `v0.1.4`
 
-- Capture what is salvageable from the old platform.
-- Keep old application YAMLs and document templates as private historical fixtures.
-- Build synthetic data that looks real enough for UI work.
-- Set dependency policy before adding SQLite or frontend tooling.
+- Application CRUD backed by SQLite.
+- Constrained application statuses, priorities, and timeline event types.
+- Contacts linked to applications and timeline entries.
+- Application next actions shown on the Applications page.
+- Document inventory with PDF upload, validation, storage, preview, and download.
+- Application posting PDF attachments.
+- Dashboard pipeline pulse with Sankey graph and signal strip.
+- Applications page Sankey graph above the application list.
+- Settings page with theme selection and JSON export.
+- Docker Compose install path with local `./data` storage.
+- Public container image tags: `latest`, `vX.Y.Z`, and `sha-<shortsha>`.
 
-## Phase 1: Manual Tracker
+## Next Product Work
 
-- Application CRUD on the initial SQLite schema.
-- Status and timeline model with constrained status/event vocabularies.
-- Contacts and correspondence notes linked to applications and timeline entries.
-- Follow-up reminders inside the UI using application-level next-action fields.
-- Document inventory and application attachments through join records.
-- CSV and JSON export.
-- Pipeline pulse dashboard and larger applications flow view. See [Pipeline Flow Plan](PIPELINE_FLOW_PLAN.md).
-
-## Phase 2: Durable Local Storage
-
-- SQLite-backed store.
-- Embedded migrations.
-- Backup and restore.
 - Import from legacy YAML.
+- CSV export if needed in addition to JSON export.
 - Redaction tooling for generating public demo fixtures.
+- First-run setup page if installation requires user-entered settings.
+- Structured status transition history for historical Sankey analytics.
+- Authentication option or documented reverse-proxy authentication pattern for
+  network-exposed deployments.
 
-## Phase 3: Installability
+## Optional Automation
 
-- Docker Compose as the canonical self-hosted install path.
-- Public container image with `latest`, versioned, and `sha-<shortsha>` tags.
-- Clear data directory conventions.
-- First-run setup page.
-- Optional binary releases later if they prove useful.
-
-## Phase 4: Optional Automation
-
-- Manual correspondence entry first.
-- Optional email metadata import only after the local workflow is solid.
+- Manual correspondence entry remains the baseline.
+- Email metadata import should be optional and read-only.
 - No automatic outbound communication.
-- Any AI-assisted drafting must be opt-in, local-data-aware, and easy to disable.
+- AI-assisted drafting, if added, must be opt-in and disableable.

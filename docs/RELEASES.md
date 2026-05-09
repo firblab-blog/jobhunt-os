@@ -16,7 +16,7 @@ Tags have these meanings:
 
 - `latest`: the newest versioned release image. This is the default in the
   provided Compose file and tracks the most recent `vX.Y.Z` release.
-- `vX.Y.Z`: a named release tag, for example `v0.1.0`. Use this when you want
+- `vX.Y.Z`: a named release tag, for example `v0.1.4`. Use this when you want
   explicit upgrades.
 - `sha-<shortsha>`: an image for a specific commit. Use this when you need an
   exact build for testing, rollback, or support.
@@ -33,7 +33,7 @@ The lightweight release process is:
 
 1. Merge the intended release state to `main`.
 2. Let CI publish a `sha-<shortsha>` image for that commit.
-3. Create and push an annotated Git tag such as `v0.1.0`.
+3. Create and push an annotated Git tag such as `v0.1.4`.
 4. Let CI publish the matching `vX.Y.Z`, `latest`, and `sha-<shortsha>` images.
 5. Let CI mirror the Git tag to GitHub and create the matching GitHub Release.
 6. Sanity-check the published image with Docker Compose before announcing it.
@@ -47,7 +47,7 @@ For production-ish self-hosted installs, pin a versioned image tag:
 ```yaml
 services:
   jobhunt-os:
-    image: ghcr.io/firblab-blog/jobhunt-os:v0.1.0
+    image: ghcr.io/firblab-blog/jobhunt-os:v0.1.4
 ```
 
 This makes upgrades deliberate: back up `./data`, edit the tag, pull the image,

@@ -1,8 +1,8 @@
 # JobHunt OS
 
-JobHunt OS is a local-first, self-hosted job hunt command center for tracking
-applications, documents, correspondence, interviews, follow-ups, and outcomes
-without handing private career data to a SaaS platform.
+JobHunt OS is a local-first, self-hosted app for tracking applications,
+documents, contacts, next actions, interviews, and outcomes without sending
+private career data to a SaaS platform.
 
 ## Install with Docker Compose
 
@@ -55,6 +55,12 @@ ghcr.io/firblab-blog/jobhunt-os:sha-<shortsha>
 The provided Compose file uses `latest`, which tracks the newest versioned
 release. Pin a versioned or commit tag in `docker-compose.yml` when you want
 more explicit upgrades.
+
+For the `v0.1.4` release line:
+
+```text
+ghcr.io/firblab-blog/jobhunt-os:v0.1.4
+```
 
 ## Data Directory
 
@@ -119,18 +125,22 @@ Run tests:
 go test ./...
 ```
 
-## Current Status
+## Current Capabilities
 
-This is a clean rebuild. The older `firblab-job-hunt` repository is treated as
-historical data and product research, not as the codebase to carry forward.
+As of `v0.1.4`, JobHunt OS includes:
 
-The repository is starting intentionally small:
+- Dashboard with an application pipeline Sankey and signal strip
+- Applications page with next actions, search, status filtering, and a Sankey
+  flow above the application list
+- Application detail pages with timeline events, status updates, next actions,
+  and posting PDF attachment support
+- Documents page for PDF uploads and downloads
+- Contacts page
+- Settings page with theme selection and JSON export
+- SQLite storage under the configured data directory
 
-- Go backend and server-rendered UI
-- Standard library only at scaffold time
-- Local data storage planned around SQLite
-- Manual-first workflows before any automation
-- Synthetic fixtures only; no real personal data belongs in this repository
+The repository must not contain real personal job hunt data. Public fixtures
+and test data should be synthetic.
 
 ## Public Readiness
 
@@ -140,27 +150,25 @@ The repository is starting intentionally small:
   fixtures should be synthetic and named `sample-*.yaml`.
 - Module path: `github.com/firblab-blog/jobhunt-os`.
 
-## Product Shape
+## Product Scope
 
-The first durable product should make the manual job hunt workflow excellent:
+The current product is centered on manual job hunt tracking:
 
-- application tracker with status, priority, compensation, location, source,
-  contacts, and next action
-- document library for resumes, cover letters, work samples, and reusable
-  snippets
-- correspondence log for recruiter and hiring-team updates
-- interview and follow-up timeline
-- dashboard for stale applications, upcoming actions, active loops, and recent
-  changes
-- import/export so users can leave at any time
+- applications with status, priority, compensation, location, source, notes,
+  contacts, and next action fields
+- documents for resumes, cover letters, work samples, and job posting PDFs
+- contacts connected to applications and timeline entries
+- timeline events for interviews, follow-ups, decisions, and notes
+- dashboard and application-level pipeline views
+- JSON export for review and migration work
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Dependency Posture
 
-The project defaults to a boring, reviewable dependency posture. Any dependency
-must earn its place by reducing real risk or complexity. The first important
+The project keeps dependencies limited and reviewable. Any dependency should
+reduce implementation risk or remove meaningful complexity. The first recorded
 dependency decision is SQLite access; see
 [docs/decisions/0001-sqlite-driver.md](docs/decisions/0001-sqlite-driver.md).
 

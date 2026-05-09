@@ -3,6 +3,10 @@
 The recommended pattern is to keep JobHunt OS bound to `127.0.0.1` on the host
 and let a reverse proxy handle HTTPS and the public hostname.
 
+JobHunt OS has no built-in authentication. If the reverse proxy makes the app
+reachable by other people or by the public internet, add authentication at the
+proxy layer.
+
 The default Compose file already uses this host binding:
 
 ```yaml
@@ -33,6 +37,21 @@ With this setup:
 - JobHunt OS remains reachable only on `127.0.0.1:8080` from the host.
 - Docker does not publish JobHunt OS directly on every network interface.
 
+If the hostname is not private, add authentication. For example, Caddy can use
+`basicauth` with a hashed password:
+
+```caddyfile
+jobs.example.com {
+	basicauth {
+		<username> <hashed-password>
+	}
+	reverse_proxy 127.0.0.1:8080
+}
+```
+
+Generate the password hash with Caddy tooling and store the Caddyfile according
+to your host's operational policy.
+
 ## Avoid Public Docker Port Binding
 
 Avoid changing the Compose port mapping to this unless you have a specific
@@ -48,7 +67,6 @@ That form can bind the app on all host interfaces. Prefer keeping the app on
 
 ## Security Note
 
-JobHunt OS is local-first and intentionally small. Do not assume it has the same
-network-hardening surface as a mature multi-user web app. If you expose it to
-the internet, put it behind a reverse proxy you trust, keep Docker and the host
-patched, and make sure the hostname is meant to be reachable.
+JobHunt OS is local-first and has no multi-user security model. If you expose it
+to the internet, put it behind a reverse proxy with authentication, keep Docker
+and the host patched, and verify that the hostname is intended to be reachable.

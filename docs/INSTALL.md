@@ -71,8 +71,14 @@ ghcr.io/firblab-blog/jobhunt-os:latest
 ```
 
 The `latest` tag is the default install path and tracks the newest versioned
-release. Users who want slower, explicit upgrades should pin the image tag in
-`docker-compose.yml` instead of tracking `latest`.
+release. Pin the image tag in `docker-compose.yml` when upgrades should be
+explicit.
+
+Current versioned release example:
+
+```text
+ghcr.io/firblab-blog/jobhunt-os:v0.1.4
+```
 
 ## Common Commands
 

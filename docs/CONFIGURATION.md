@@ -1,7 +1,7 @@
 # Configuration
 
-JobHunt OS intentionally has a small runtime configuration surface today. The
-default setup is meant to be local-first and boring to operate.
+JobHunt OS has a small runtime configuration surface. The default setup is
+local-first.
 
 ## Environment Variables
 
@@ -112,10 +112,23 @@ The Compose file combines those container defaults with a host-side loopback
 port binding. This is why `0.0.0.0` inside the container does not mean the app is
 automatically exposed on the host network.
 
+## Settings Page
+
+The in-app Settings page is available at:
+
+```text
+/settings
+```
+
+As of `v0.1.4`, it contains:
+
+- theme selection: system, light, and dark
+- JSON export download
+
+The legacy `/backup` route redirects to `/settings`. Theme selection is stored
+in the `jobhunt_theme` cookie.
+
 ## Configuration Scope
 
-The configuration is intentionally small for now. JobHunt OS does not currently
-include account management, SMTP settings, OAuth, object storage, background
-workers, or a separate management service. Future features may add settings, but
-the current self-hosted path is designed to stay simple until those features
-exist.
+JobHunt OS does not currently include account management, SMTP settings, OAuth,
+object storage, background workers, or a separate management service.

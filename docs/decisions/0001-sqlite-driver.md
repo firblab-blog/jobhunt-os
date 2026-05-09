@@ -4,7 +4,9 @@ Status: accepted
 
 ## Context
 
-JobHunt OS should use SQLite for local storage because it is portable, durable, easy to back up, and requires no external service. Go's standard library provides `database/sql`, but it does not include a SQLite driver.
+JobHunt OS should use SQLite for local storage because it is portable, durable,
+file-backed, and requires no external service. Go's standard library provides
+`database/sql`, but it does not include a SQLite driver.
 
 ## Options
 
@@ -22,13 +24,17 @@ JobHunt OS should use SQLite for local storage because it is portable, durable, 
 
 ### Embedded SQLite via Rust sidecar
 
-- Keeps Go web code simple while using Rust storage tooling.
+- Keeps the Go web code limited to `database/sql`.
 - Adds architecture complexity too early.
 
 ## Decision
 
-Start with explicit repository interfaces and migration files, but do not add a SQLite driver until the first persistent workflow is ready. When persistence starts, the intended first driver is `modernc.org/sqlite`.
+Use explicit repository interfaces, SQL migrations, and `modernc.org/sqlite`.
 
-The portability tradeoff is intentional: pure Go and no CGO should make local builds and cross-platform releases simpler, especially for machines without native compiler toolchains. The cost is a larger Go dependency graph, which must be reviewed before the dependency is added.
+The portability tradeoff is intentional: pure Go and no CGO reduce build
+requirements, especially for machines without native compiler toolchains. The
+cost is a larger Go dependency graph, which must be reviewed before the
+dependency is added.
 
-Keep SQL explicit and avoid an ORM. The first store implementation must enable `PRAGMA foreign_keys = ON` on every opened SQLite connection before it runs migrations or application queries, because SQLite leaves foreign key enforcement off by default.
+Keep SQL explicit and avoid an ORM. The store enables foreign key enforcement
+through the SQLite DSN before running migrations or application queries.

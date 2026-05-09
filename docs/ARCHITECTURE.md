@@ -1,16 +1,16 @@
 # Architecture
 
-JobHunt OS should remain local-first, portable, and dependency-minimized.
+JobHunt OS is local-first, portable, and dependency-limited.
 
 ## Principles
 
 - Private by default: user data lives on the user's machine unless they explicitly export or sync it.
-- Manual first: the core product should work well without email automation, scraping, AI, or background agents.
+- Manual first: the core product should work without email automation, scraping, AI, or background agents.
 - Small trusted base: prefer the Go standard library and explicit code over broad frameworks.
 - Portable install: Docker Compose with the public container image and a local data directory is the canonical end-user path today; direct source or binary usage can remain a local or future option.
-- Escape hatch: import and export must be first-class so users never feel trapped.
+- Escape hatch: import and export must support migration away from the app.
 
-## Proposed Shape
+## Runtime Shape
 
 ```mermaid
 flowchart LR
@@ -24,9 +24,9 @@ flowchart LR
 ## Runtime
 
 - `cmd/jobhunt-os`: binary entry point
-- `internal/server`: HTTP routes, templates, and middleware
-- `internal/store`: planned persistence layer around explicit SQL
-- `migrations`: planned embedded schema migrations
+- `internal/server`: HTTP routes, templates, middleware, exports, and file handling
+- `internal/store`: storage interfaces and SQLite implementation
+- `migrations`: embedded schema migrations
 - `web`: server-rendered templates and static assets
 - `fixtures`: synthetic examples for UI and tests
 
@@ -41,8 +41,12 @@ flowchart LR
 
 ## Persistence Notes
 
-The initial migration is the source of truth until real data exists. SQLite foreign key enforcement is connection-local, so the future store must enable `PRAGMA foreign_keys = ON` immediately after opening each database connection.
+SQLite is the durable store. Migrations are embedded in the binary. Foreign key
+enforcement is enabled through the SQLite DSN for each connection.
 
 ## Security Boundaries
 
-The first release should bind to localhost by default, avoid accounts entirely, and store data under a user-controlled data directory. Any future network mode needs authentication, CSRF protection, rate limits, and a separate threat model.
+The app binds to localhost by default, has no built-in accounts, and stores data
+under a user-controlled data directory. State-changing forms use CSRF tokens.
+Network-exposed deployments need authentication at the reverse proxy or another
+external access-control layer.

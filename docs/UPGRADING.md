@@ -50,7 +50,7 @@ When versioned image tags are available, you can pin the image in
 ```yaml
 services:
   jobhunt-os:
-    image: ghcr.io/firblab-blog/jobhunt-os:v0.1.0
+    image: ghcr.io/firblab-blog/jobhunt-os:v0.1.4
 ```
 
 Pinned tags make upgrades more explicit: edit the tag, back up, pull, and run

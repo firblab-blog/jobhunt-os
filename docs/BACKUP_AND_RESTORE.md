@@ -17,8 +17,8 @@ docker compose up -d
 Stopping the container before archiving keeps the SQLite database and local
 files in a quiet state while the backup is created.
 
-Store the resulting `.tgz` somewhere outside the install directory, ideally on a
-different disk or backup service.
+Store the resulting `.tgz` outside the install directory, such as on a different
+disk or backup service.
 
 ## Restore or Move an Install
 
@@ -58,13 +58,13 @@ for the configured user.
 
 ## JSON Export Is Not a Full Restore Backup
 
-The app currently has a Backup page at:
+The Settings page includes a JSON export control:
 
 ```text
-/backup
+/settings
 ```
 
-That page offers:
+The export endpoint is:
 
 ```text
 /export.json
@@ -73,6 +73,8 @@ That page offers:
 This JSON export is useful for reading, auditing, migration work, or keeping an
 extra copy of application, document, and contact records. It is not yet a full
 restore mechanism for the running app.
+
+The legacy `/backup` route redirects to `/settings`.
 
 For now, use data directory backups for disaster recovery, moves, and complete
 restores.
