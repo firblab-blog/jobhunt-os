@@ -10,7 +10,7 @@
   <body>
     <header class="topbar">
       <div class="topbar-heading">
-        <h1><a class="brand-link brand-logo-link" href="/" aria-label="JobHunt OS dashboard"><img class="brand-logo" src="/static/jobhunt-os-logo-horizontal.svg" alt="JobHunt OS"></a></h1>
+        <div class="topbar-brand"><a class="brand-link brand-logo-link" href="/" aria-label="JobHunt OS dashboard"><img class="brand-logo" src="/static/jobhunt-os-logo-horizontal.svg" alt="JobHunt OS"></a></div>
       </div>
       <div class="topbar-actions">
         <nav class="desktop-primary-nav" aria-label="Primary">
@@ -42,7 +42,7 @@
         <div class="panel-header">
           <div>
             <p class="eyebrow">Opportunity details</p>
-            <h2>Track a role</h2>
+            <h1>Track a role</h1>
           </div>
           <button type="submit">Create application</button>
         </div>
@@ -54,19 +54,19 @@
         <div class="form-grid">
           <label>
             <span>Company</span>
-            <input name="company" value="{{ .Values.Company }}" autocomplete="organization" required{{ with .Errors.Get "company" }} aria-invalid="true" aria-describedby="company-error"{{ end }}>
+            <input name="company" value="{{ .Values.Company }}" autocomplete="off" required{{ with .Errors.Get "company" }} aria-invalid="true" aria-describedby="company-error"{{ end }}>
             {{ with .Errors.Get "company" }}<strong id="company-error">{{ . }}</strong>{{ end }}
           </label>
 
           <label>
             <span>Role</span>
-            <input name="role" value="{{ .Values.Role }}" autocomplete="organization-title" required{{ with .Errors.Get "role" }} aria-invalid="true" aria-describedby="role-error"{{ end }}>
+            <input name="role" value="{{ .Values.Role }}" autocomplete="off" required{{ with .Errors.Get "role" }} aria-invalid="true" aria-describedby="role-error"{{ end }}>
             {{ with .Errors.Get "role" }}<strong id="role-error">{{ . }}</strong>{{ end }}
           </label>
 
           <label>
             <span>Status</span>
-            <select name="status" required{{ with .Errors.Get "status" }} aria-invalid="true" aria-describedby="status-error"{{ end }}>
+            <select name="status" autocomplete="off" required{{ with .Errors.Get "status" }} aria-invalid="true" aria-describedby="status-error"{{ end }}>
               {{ range .StatusOptions }}
               <option value="{{ .Value }}" {{ if eq $.Values.Status .Value }}selected{{ end }}>{{ .Label }}</option>
               {{ end }}
@@ -76,7 +76,7 @@
 
           <label>
             <span>Priority</span>
-            <select name="priority" required{{ with .Errors.Get "priority" }} aria-invalid="true" aria-describedby="priority-error"{{ end }}>
+            <select name="priority" autocomplete="off" required{{ with .Errors.Get "priority" }} aria-invalid="true" aria-describedby="priority-error"{{ end }}>
               {{ range .PriorityOptions }}
               <option value="{{ .Value }}" {{ if eq $.Values.Priority .Value }}selected{{ end }}>{{ .Label }}</option>
               {{ end }}
@@ -91,19 +91,19 @@
 
           <label>
             <span>Original link</span>
-            <input name="posting_url" type="url" value="{{ .Values.PostingURL }}" autocomplete="url"{{ with .Errors.Get "posting_url" }} aria-invalid="true" aria-describedby="posting-url-error"{{ end }}>
+            <input name="posting_url" type="url" value="{{ .Values.PostingURL }}" autocomplete="off"{{ with .Errors.Get "posting_url" }} aria-invalid="true" aria-describedby="posting-url-error"{{ end }}>
             {{ with .Errors.Get "posting_url" }}<strong id="posting-url-error">{{ . }}</strong>{{ end }}
           </label>
 
           <label>
             <span>Posting PDF</span>
-            <input name="posting_pdf" type="file" accept="application/pdf,.pdf"{{ with .Errors.Get "posting_pdf" }} aria-invalid="true" aria-describedby="posting-pdf-error"{{ end }}>
+            <input name="posting_pdf" type="file" accept="application/pdf,.pdf" autocomplete="off"{{ with .Errors.Get "posting_pdf" }} aria-invalid="true" aria-describedby="posting-pdf-error"{{ end }}>
             {{ with .Errors.Get "posting_pdf" }}<strong id="posting-pdf-error">{{ . }}</strong>{{ end }}
           </label>
 
           <label>
             <span>Location</span>
-            <input name="location" value="{{ .Values.Location }}" autocomplete="address-level2">
+            <input name="location" value="{{ .Values.Location }}" autocomplete="off">
           </label>
 
           <label>
@@ -113,13 +113,13 @@
 
           <label>
             <span>Next action due</span>
-            <input name="next_action_due" type="date" value="{{ .Values.NextActionDue }}"{{ with .Errors.Get "next_action_due" }} aria-invalid="true" aria-describedby="next-action-due-error"{{ end }}>
+            <input name="next_action_due" type="date" value="{{ .Values.NextActionDue }}" autocomplete="off"{{ with .Errors.Get "next_action_due" }} aria-invalid="true" aria-describedby="next-action-due-error"{{ end }}>
             {{ with .Errors.Get "next_action_due" }}<strong id="next-action-due-error">{{ . }}</strong>{{ end }}
           </label>
 
           <label class="full-span">
             <span>Notes</span>
-            <textarea name="notes" rows="6">{{ .Values.Notes }}</textarea>
+            <textarea name="notes" rows="6" autocomplete="off">{{ .Values.Notes }}</textarea>
           </label>
         </div>
       </form>

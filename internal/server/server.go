@@ -35,24 +35,47 @@ import (
 )
 
 const (
-	maxPostingPDFBytes       int64 = 20 << 20
-	maxPostingMultipartBytes int64 = maxPostingPDFBytes + (2 << 20)
-	staleActiveDays                = 7
-	themeCookieName                = "jobhunt_theme"
-	themeCookieMaxAge              = 60 * 60 * 24 * 365
-	themeSystem                    = "system"
-	themeLight                     = "light"
-	themeDark                      = "dark"
-	authModeDisabled               = "disabled"
-	authModeLogin                  = "login"
-	authModeBasic                  = "basic"
-	sessionCookieName              = "jobhunt_session"
-	hostSessionCookieName          = "__Host-jobhunt_session"
-	loginErrorMessage              = "Invalid username or password."
-	noStoreCacheControl            = "no-store"
-	appCSP                         = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'self'; frame-ancestors 'none'; form-action 'self'"
-	documentPreviewCSP             = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'self'"
-	documentDownloadCSP            = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'"
+	maxPostingPDFBytes           int64 = 20 << 20
+	maxPostingMultipartBytes     int64 = maxPostingPDFBytes + (2 << 20)
+	staleActiveDays                    = 7
+	themeCookieName                    = "jobhunt_theme"
+	themeCookieMaxAge                  = 60 * 60 * 24 * 365
+	themeSystem                        = "system"
+	themeLight                         = "light"
+	themeDark                          = "dark"
+	authModeDisabled                   = "disabled"
+	authModeLogin                      = "login"
+	authModeBasic                      = "basic"
+	sessionCookieName                  = "jobhunt_session"
+	hostSessionCookieName              = "__Host-jobhunt_session"
+	loginErrorMessage                  = "Invalid username or password."
+	noStoreCacheControl                = "no-store"
+	staticPathPrefix                   = "/static/"
+	healthzPath                        = "/healthz"
+	faviconPath                        = "/favicon.ico"
+	loginPath                          = "/login"
+	logoutPath                         = "/logout"
+	themePath                          = "/theme"
+	faviconAssetPath                   = staticPathPrefix + "jobhunt-os-favicon.svg"
+	exportFilename                     = "jobhunt-os-export.json"
+	routeGETStatic                     = "GET " + staticPathPrefix
+	routeGETHealthz                    = "GET " + healthzPath
+	routeGETFavicon                    = "GET " + faviconPath
+	routeGETLogin                      = "GET " + loginPath
+	routePOSTLogin                     = "POST " + loginPath
+	routePOSTLogout                    = "POST " + logoutPath
+	routeGETTheme                      = "GET " + themePath
+	appStoreNotConfiguredMessage       = "application store is not configured"
+	documentStorageNotConfigured       = "Document storage is not configured."
+	formBodyTooLargeMessage            = "form body too large"
+	invalidFormBodyMessage             = "invalid form body"
+	invalidCSRFTokenMessage            = "invalid CSRF token"
+	postingPDFFieldName                = "posting_pdf"
+	postingURLFieldName                = "posting_url"
+	postingURLValidationMessage        = "Original link must be a valid HTTP or HTTPS URL."
+	appCSP                             = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'self'; frame-ancestors 'none'; form-action 'self'"
+	documentPreviewCSP                 = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'self'"
+	documentDownloadCSP                = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'"
 )
 
 type Server struct {
@@ -552,13 +575,13 @@ func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler 
 		panic(err)
 	}
 
-	s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles))))
-	s.mux.HandleFunc("GET /healthz", s.healthz)
-	s.mux.HandleFunc("GET /favicon.ico", s.favicon)
-	s.mux.HandleFunc("GET /login", s.loginGet)
-	s.mux.HandleFunc("POST /login", s.loginPost)
-	s.mux.HandleFunc("POST /logout", s.logoutPost)
-	s.mux.HandleFunc("GET /theme", s.themeUpdate)
+	s.mux.Handle(routeGETStatic, http.StripPrefix(staticPathPrefix, http.FileServer(http.FS(staticFiles))))
+	s.mux.HandleFunc(routeGETHealthz, s.healthz)
+	s.mux.HandleFunc(routeGETFavicon, s.favicon)
+	s.mux.HandleFunc(routeGETLogin, s.loginGet)
+	s.mux.HandleFunc(routePOSTLogin, s.loginPost)
+	s.mux.HandleFunc(routePOSTLogout, s.logoutPost)
+	s.mux.HandleFunc(routeGETTheme, s.themeUpdate)
 	s.mux.HandleFunc("GET /{$}", s.home)
 	s.mux.HandleFunc("GET /applications", s.applicationsIndex)
 	s.mux.HandleFunc("GET /applications/new", s.applicationsNew)
@@ -659,7 +682,7 @@ func newLoginAuth(opts AuthOptions) (*loginAuth, error) {
 }
 
 func (s *Server) requiresBasicAuth(r *http.Request) bool {
-	return s.auth != nil && r.URL.Path != "/healthz"
+	return s.auth != nil && r.URL.Path != healthzPath
 }
 
 func (s *Server) requiresLoginAuth(r *http.Request) bool {
@@ -667,13 +690,13 @@ func (s *Server) requiresLoginAuth(r *http.Request) bool {
 		return false
 	}
 	switch {
-	case r.URL.Path == "/healthz":
+	case r.URL.Path == healthzPath:
 		return false
-	case r.URL.Path == "/login":
+	case r.URL.Path == loginPath:
 		return false
-	case r.URL.Path == "/favicon.ico":
+	case r.URL.Path == faviconPath:
 		return false
-	case strings.HasPrefix(r.URL.Path, "/static/"):
+	case strings.HasPrefix(r.URL.Path, staticPathPrefix):
 		return false
 	default:
 		return true
@@ -868,7 +891,7 @@ func (s *Server) authorizeSession(r *http.Request) (bool, *http.Request) {
 func (s *Server) requireLogin(w http.ResponseWriter, r *http.Request) {
 	setNoStore(w.Header())
 	if acceptsBrowserRedirect(r) {
-		http.Redirect(w, r, "/login?next="+url.QueryEscape(loginNextPath(r)), http.StatusSeeOther)
+		http.Redirect(w, r, loginPath+"?next="+url.QueryEscape(loginNextPath(r)), http.StatusSeeOther)
 		return
 	}
 	http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
@@ -943,7 +966,7 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) favicon(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/static/jobhunt-os-favicon.svg", http.StatusMovedPermanently)
+	http.Redirect(w, r, faviconAssetPath, http.StatusMovedPermanently)
 }
 
 func (s *Server) loginGet(w http.ResponseWriter, r *http.Request) {
@@ -1028,7 +1051,7 @@ func (s *Server) logoutPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := verifyCSRF(r, time.Now()); err != nil {
-		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
+		http.Error(w, invalidCSRFTokenMessage, http.StatusBadRequest)
 		return
 	}
 
@@ -1039,7 +1062,7 @@ func (s *Server) logoutPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.clearSessionCookies(w)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	http.Redirect(w, r, loginPath, http.StatusSeeOther)
 }
 
 func parseLoginForm(w http.ResponseWriter, r *http.Request) error {
@@ -1083,10 +1106,10 @@ func loginRedirectTarget(next string) string {
 func safeLoginNextTarget(r *http.Request, candidate string) string {
 	target := safeRedirectTarget(r, candidate)
 	switch target {
-	case "", "/login", "/logout", "/healthz", "/theme":
+	case "", loginPath, logoutPath, healthzPath, themePath:
 		return ""
 	default:
-		if strings.HasPrefix(target, "/static/") {
+		if strings.HasPrefix(target, staticPathPrefix) {
 			return ""
 		}
 		return target
@@ -1770,7 +1793,7 @@ func applicationHref(app model.Application) string {
 
 func (s *Server) applicationsIndex(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
@@ -2120,7 +2143,7 @@ func applicationsFlowShare(count int, total int) int {
 
 func (s *Server) documentsIndex(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
@@ -2137,7 +2160,7 @@ func (s *Server) documentsIndex(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
@@ -2150,7 +2173,7 @@ func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 		defer file.Close()
 	}
 	if err := verifyCSRF(r, time.Now()); err != nil {
-		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
+		http.Error(w, invalidCSRFTokenMessage, http.StatusBadRequest)
 		return
 	}
 
@@ -2160,7 +2183,7 @@ func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 		form.errors.Add("document_file", "Choose a PDF to upload.")
 	}
 	if hasPostingPDF(fileHeader) && s.dataDir == "" {
-		form.errors.Add("document_file", "Document storage is not configured.")
+		form.errors.Add("document_file", documentStorageNotConfigured)
 	}
 	if hasPostingPDF(fileHeader) && !form.errors.Any() {
 		if err := validatePostingPDF(file, fileHeader); err != nil {
@@ -2187,7 +2210,7 @@ func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) documentsShow(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
@@ -2216,7 +2239,7 @@ func (s *Server) documentsShow(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) documentsDownload(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 	if s.dataDir == "" {
@@ -2260,7 +2283,7 @@ func (s *Server) documentsDownload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) contactsIndex(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
@@ -2275,7 +2298,7 @@ func (s *Server) contactsIndex(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) contactsCreate(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
@@ -2285,7 +2308,7 @@ func (s *Server) contactsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := verifyCSRF(r, time.Now()); err != nil {
-		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
+		http.Error(w, invalidCSRFTokenMessage, http.StatusBadRequest)
 		return
 	}
 
@@ -2323,7 +2346,7 @@ func (s *Server) backupRedirect(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) exportJSON(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
@@ -2334,7 +2357,7 @@ func (s *Server) exportJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="jobhunt-os-export.json"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename+`"`)
 	setNoStore(w.Header())
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
@@ -2352,24 +2375,20 @@ func (s *Server) applicationsNew(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) applicationsCreate(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
 	form, file, fileHeader, err := s.parseApplicationCreateForm(w, r)
 	if err != nil {
-		if errors.Is(err, errFormTooLarge) {
-			http.Error(w, "form body too large", http.StatusRequestEntityTooLarge)
-			return
-		}
-		http.Error(w, "invalid form body", http.StatusBadRequest)
+		handleFormParseError(w, err)
 		return
 	}
 	if file != nil {
 		defer file.Close()
 	}
 	if err := verifyCSRF(r, time.Now()); err != nil {
-		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
+		http.Error(w, invalidCSRFTokenMessage, http.StatusBadRequest)
 		return
 	}
 
@@ -2377,11 +2396,11 @@ func (s *Server) applicationsCreate(w http.ResponseWriter, r *http.Request) {
 	app := applicationFromForm(form)
 	hasFile := hasPostingPDF(fileHeader)
 	if hasFile && s.dataDir == "" {
-		form.errors.Add("posting_pdf", "Document storage is not configured.")
+		form.errors.Add(postingPDFFieldName, documentStorageNotConfigured)
 	}
 	if hasFile && !form.errors.Any() {
 		if err := validatePostingPDF(file, fileHeader); err != nil {
-			form.errors.Add("posting_pdf", "Choose a valid PDF under 20 MB.")
+			form.errors.Add(postingPDFFieldName, "Choose a valid PDF under 20 MB.")
 		}
 	}
 	if !form.errors.Any() {
@@ -2405,7 +2424,7 @@ func (s *Server) applicationsCreate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) applicationsShow(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
@@ -2430,21 +2449,17 @@ func (s *Server) applicationsShow(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) applicationsAddEvent(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
 	form, err := parseLimitedForm(w, r, defaultMaxFormBytes)
 	if err != nil {
-		if errors.Is(err, errFormTooLarge) {
-			http.Error(w, "form body too large", http.StatusRequestEntityTooLarge)
-			return
-		}
-		http.Error(w, "invalid form body", http.StatusBadRequest)
+		handleFormParseError(w, err)
 		return
 	}
 	if err := verifyCSRF(r, time.Now()); err != nil {
-		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
+		http.Error(w, invalidCSRFTokenMessage, http.StatusBadRequest)
 		return
 	}
 
@@ -2486,21 +2501,17 @@ func (s *Server) applicationsAddEvent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) applicationsUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
 	form, err := parseLimitedForm(w, r, defaultMaxFormBytes)
 	if err != nil {
-		if errors.Is(err, errFormTooLarge) {
-			http.Error(w, "form body too large", http.StatusRequestEntityTooLarge)
-			return
-		}
-		http.Error(w, "invalid form body", http.StatusBadRequest)
+		handleFormParseError(w, err)
 		return
 	}
 	if err := verifyCSRF(r, time.Now()); err != nil {
-		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
+		http.Error(w, invalidCSRFTokenMessage, http.StatusBadRequest)
 		return
 	}
 
@@ -2542,24 +2553,20 @@ func (s *Server) applicationsUpdateStatus(w http.ResponseWriter, r *http.Request
 
 func (s *Server) applicationsUpdatePosting(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
-		serverError(w, r, errors.New("application store is not configured"))
+		serverError(w, r, errors.New(appStoreNotConfiguredMessage))
 		return
 	}
 
 	form, file, fileHeader, err := parsePostingMultipartForm(w, r)
 	if err != nil {
-		if errors.Is(err, errFormTooLarge) {
-			http.Error(w, "form body too large", http.StatusRequestEntityTooLarge)
-			return
-		}
-		http.Error(w, "invalid form body", http.StatusBadRequest)
+		handleFormParseError(w, err)
 		return
 	}
 	if file != nil {
 		defer file.Close()
 	}
 	if err := verifyCSRF(r, time.Now()); err != nil {
-		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
+		http.Error(w, invalidCSRFTokenMessage, http.StatusBadRequest)
 		return
 	}
 
@@ -2576,14 +2583,14 @@ func (s *Server) applicationsUpdatePosting(w http.ResponseWriter, r *http.Reques
 	values := postingFormValuesFromForm(form)
 	postingURL := strings.TrimSpace(values.PostingURL)
 	if postingURL != "" && !model.ValidHTTPURL(postingURL) {
-		form.errors.Add("posting_url", "Original link must be a valid HTTP or HTTPS URL.")
+		form.errors.Add(postingURLFieldName, postingURLValidationMessage)
 	}
 	hasFile := fileHeader != nil && fileHeader.Filename != ""
 	if !hasFile && postingURL == app.PostingURL {
 		form.errors.Add("form", "Update the original link or choose a PDF to attach.")
 	}
 	if hasFile && s.dataDir == "" {
-		form.errors.Add("posting_pdf", "Document storage is not configured.")
+		form.errors.Add(postingPDFFieldName, documentStorageNotConfigured)
 	}
 
 	if !form.errors.Any() {
@@ -2601,7 +2608,7 @@ func (s *Server) applicationsUpdatePosting(w http.ResponseWriter, r *http.Reques
 	if !form.errors.Any() && hasFile {
 		document, err := s.savePostingPDF(r.Context(), app, file, fileHeader)
 		if err != nil {
-			form.errors.Add("posting_pdf", "Could not save PDF. Choose a valid PDF under 20 MB.")
+			form.errors.Add(postingPDFFieldName, "Could not save PDF. Choose a valid PDF under 20 MB.")
 			slog.Error("save posting pdf", "error", err)
 		} else {
 			documents = append([]model.ApplicationDocument{document}, documents...)
@@ -2863,7 +2870,7 @@ func safeRedirectTarget(r *http.Request, candidate string) string {
 		return ""
 	}
 
-	if parsed.Path == "/theme" {
+	if parsed.Path == themePath {
 		return "/"
 	}
 	if parsed.RawQuery == "" {
@@ -2894,7 +2901,7 @@ func parsePostingMultipartForm(w http.ResponseWriter, r *http.Request) (*formDat
 		errors: formErrors{},
 	}
 
-	file, header, err := r.FormFile("posting_pdf")
+	file, header, err := r.FormFile(postingPDFFieldName)
 	if err != nil {
 		if errors.Is(err, http.ErrMissingFile) {
 			return form, nil, nil, nil
@@ -3191,7 +3198,7 @@ func applicationFormValuesFromForm(form *formData) applicationFormValues {
 		Status:            form.Value("status"),
 		Priority:          form.Value("priority"),
 		Source:            form.Value("source"),
-		PostingURL:        form.Value("posting_url"),
+		PostingURL:        form.Value(postingURLFieldName),
 		Location:          form.Value("location"),
 		NextActionSummary: form.Value("next_action_summary"),
 		NextActionDue:     form.Value("next_action_due"),
@@ -3206,7 +3213,7 @@ func applicationFromForm(form *formData) model.Application {
 		Status:     model.ApplicationStatus(form.RequiredString("status", "Status")),
 		Priority:   model.Priority(form.RequiredString("priority", "Priority")),
 		Source:     form.Value("source"),
-		PostingURL: form.Value("posting_url"),
+		PostingURL: form.Value(postingURLFieldName),
 		Location:   form.Value("location"),
 		Notes:      form.Value("notes"),
 		NextAction: model.NextAction{
@@ -3221,7 +3228,7 @@ func applicationFromForm(form *formData) model.Application {
 		form.errors.Add("priority", "Priority must be low, normal, or high.")
 	}
 	if app.PostingURL != "" && !model.ValidHTTPURL(app.PostingURL) {
-		form.errors.Add("posting_url", "Original link must be a valid HTTP or HTTPS URL.")
+		form.errors.Add(postingURLFieldName, postingURLValidationMessage)
 	}
 	if due, ok := form.OptionalDate("next_action_due", "Next action due"); ok {
 		app.NextAction.Due = &due
@@ -3235,7 +3242,7 @@ func postingFormValuesFromApplication(app model.Application) postingFormValues {
 }
 
 func postingFormValuesFromForm(form *formData) postingFormValues {
-	return postingFormValues{PostingURL: form.Value("posting_url")}
+	return postingFormValues{PostingURL: form.Value(postingURLFieldName)}
 }
 
 func applicationEventFormValuesFromForm(form *formData) applicationEventFormValues {
@@ -3660,10 +3667,10 @@ func itoa(value int) string {
 
 func handleFormParseError(w http.ResponseWriter, err error) {
 	if errors.Is(err, errFormTooLarge) {
-		http.Error(w, "form body too large", http.StatusRequestEntityTooLarge)
+		http.Error(w, formBodyTooLargeMessage, http.StatusRequestEntityTooLarge)
 		return
 	}
-	http.Error(w, "invalid form body", http.StatusBadRequest)
+	http.Error(w, invalidFormBodyMessage, http.StatusBadRequest)
 }
 
 func setSecurityHeaders(h http.Header) {

@@ -10,7 +10,7 @@
   <body>
     <header class="topbar">
       <div class="topbar-heading">
-        <h1><a class="brand-link brand-logo-link" href="/" aria-label="JobHunt OS dashboard"><img class="brand-logo" src="/static/jobhunt-os-logo-horizontal.svg" alt="JobHunt OS"></a></h1>
+        <div class="topbar-brand"><a class="brand-link brand-logo-link" href="/" aria-label="JobHunt OS dashboard"><img class="brand-logo" src="/static/jobhunt-os-logo-horizontal.svg" alt="JobHunt OS"></a></div>
       </div>
       <div class="topbar-actions">
         <nav class="desktop-primary-nav" aria-label="Primary">
@@ -41,7 +41,7 @@
           <div class="panel-header">
             <div>
               <p class="eyebrow">Saved references</p>
-              <h2>Resume, cover letter, and portfolio records</h2>
+              <h1>Resume, cover letter, and portfolio records</h1>
             </div>
           </div>
 
@@ -86,13 +86,13 @@
             <div class="support-form-fields">
               <label>
                 <span>Name</span>
-                <input name="name" value="{{ .Values.Name }}" required{{ with .Errors.Get "name" }} aria-invalid="true" aria-describedby="document-name-error"{{ end }}>
+                <input name="name" value="{{ .Values.Name }}" autocomplete="off" required{{ with .Errors.Get "name" }} aria-invalid="true" aria-describedby="document-name-error"{{ end }}>
                 {{ with .Errors.Get "name" }}<strong id="document-name-error">{{ . }}</strong>{{ end }}
               </label>
 
               <label>
                 <span>Type</span>
-                <select name="document_type" required{{ with .Errors.Get "document_type" }} aria-invalid="true" aria-describedby="document-type-error"{{ end }}>
+                <select name="document_type" autocomplete="off" required{{ with .Errors.Get "document_type" }} aria-invalid="true" aria-describedby="document-type-error"{{ end }}>
                   {{ range .TypeOptions }}
                   <option value="{{ .Value }}" {{ if eq $.Values.Type .Value }}selected{{ end }}>{{ .Label }}</option>
                   {{ end }}
@@ -102,13 +102,13 @@
 
               <label>
                 <span>PDF file</span>
-                <input name="document_file" type="file" accept="application/pdf,.pdf" required{{ with .Errors.Get "document_file" }} aria-invalid="true" aria-describedby="document-file-error"{{ end }}>
+                <input name="document_file" type="file" accept="application/pdf,.pdf" autocomplete="off" required{{ with .Errors.Get "document_file" }} aria-invalid="true" aria-describedby="document-file-error"{{ end }}>
                 {{ with .Errors.Get "document_file" }}<strong id="document-file-error">{{ . }}</strong>{{ end }}
               </label>
 
               <label>
                 <span>Notes</span>
-                <textarea name="notes" rows="5">{{ .Values.Notes }}</textarea>
+                <textarea name="notes" rows="5" autocomplete="off">{{ .Values.Notes }}</textarea>
               </label>
             </div>
 

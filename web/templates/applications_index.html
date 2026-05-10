@@ -10,7 +10,7 @@
   <body>
     <header class="topbar">
       <div class="topbar-heading">
-        <h1><a class="brand-link brand-logo-link" href="/" aria-label="JobHunt OS dashboard"><img class="brand-logo" src="/static/jobhunt-os-logo-horizontal.svg" alt="JobHunt OS"></a></h1>
+        <div class="topbar-brand"><a class="brand-link brand-logo-link" href="/" aria-label="JobHunt OS dashboard"><img class="brand-logo" src="/static/jobhunt-os-logo-horizontal.svg" alt="JobHunt OS"></a></div>
       </div>
       <div class="topbar-actions">
         <nav class="desktop-primary-nav" aria-label="Primary">
@@ -40,7 +40,7 @@
         <div class="panel-header">
           <div>
             <p class="eyebrow">Tracked opportunities</p>
-            <h2>Applications</h2>
+            <h1>Applications</h1>
             <p class="applications-count">Work next actions first, then review the full tracked list.</p>
           </div>
           <a class="button" href="/applications/new">New application</a>
@@ -96,7 +96,7 @@
           </label>
           <label>
             <span>Status</span>
-            <select name="status">
+            <select name="status" autocomplete="off">
               <option value="" {{ if eq .Status "" }}selected{{ end }}>All statuses</option>
               {{ range .StatusOptions }}
               <option value="{{ .Value }}" {{ if eq $.Status .Value }}selected{{ end }}>{{ .Label }}</option>

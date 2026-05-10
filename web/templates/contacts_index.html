@@ -10,7 +10,7 @@
   <body>
     <header class="topbar">
       <div class="topbar-heading">
-        <h1><a class="brand-link brand-logo-link" href="/" aria-label="JobHunt OS dashboard"><img class="brand-logo" src="/static/jobhunt-os-logo-horizontal.svg" alt="JobHunt OS"></a></h1>
+        <div class="topbar-brand"><a class="brand-link brand-logo-link" href="/" aria-label="JobHunt OS dashboard"><img class="brand-logo" src="/static/jobhunt-os-logo-horizontal.svg" alt="JobHunt OS"></a></div>
       </div>
       <div class="topbar-actions">
         <nav class="desktop-primary-nav" aria-label="Primary">
@@ -41,7 +41,7 @@
           <div class="panel-header">
             <div>
               <p class="eyebrow">People</p>
-              <h2>Recruiters, referrals, and interviewers</h2>
+              <h1>Recruiters, referrals, and interviewers</h1>
             </div>
           </div>
 
@@ -123,7 +123,7 @@
 
               <label>
                 <span>Notes</span>
-                <textarea name="notes" rows="5">{{ .Values.Notes }}</textarea>
+                <textarea name="notes" rows="5" autocomplete="off">{{ .Values.Notes }}</textarea>
               </label>
             </div>
 

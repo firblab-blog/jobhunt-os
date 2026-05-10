@@ -504,6 +504,23 @@ func TestDefaultDataDirWindows(t *testing.T) {
 	}
 }
 
+func TestDefaultDataDirWindowsFallsBackToHomeDir(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := load(env(nil), loadOptions{
+		goos:    "windows",
+		homeDir: `C:\Users\Jordan`,
+	})
+	if err != nil {
+		t.Fatalf("load() error = %v", err)
+	}
+
+	want := `C:\Users\Jordan\AppData\Roaming\jobhunt-os`
+	if cfg.DataDir != want {
+		t.Fatalf("DataDir = %q, want %q", cfg.DataDir, want)
+	}
+}
+
 func TestDataDirExpandsHomePrefix(t *testing.T) {
 	t.Parallel()
 
@@ -520,6 +537,53 @@ func TestDataDirExpandsHomePrefix(t *testing.T) {
 	want := filepath.Join("/Users/jordan", "Library", "Application Support", "jobhunt-os")
 	if cfg.DataDir != want {
 		t.Fatalf("DataDir = %q, want %q", cfg.DataDir, want)
+	}
+}
+
+func TestDataDirRequiresHomeForDefaultsAndExpansion(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		values  map[string]string
+		goos    string
+		wantErr string
+	}{
+		"darwin default": {
+			goos:    "darwin",
+			wantErr: "home directory is required to default JOBHUNT_DATA_DIR",
+		},
+		"linux default": {
+			goos:    "linux",
+			wantErr: "home directory is required to default JOBHUNT_DATA_DIR",
+		},
+		"windows default": {
+			goos:    "windows",
+			wantErr: "APPDATA or home directory is required to default JOBHUNT_DATA_DIR",
+		},
+		"explicit expansion": {
+			values:  map[string]string{EnvDataDir: "~/Library/Application Support/jobhunt-os"},
+			goos:    "darwin",
+			wantErr: "home directory is required to expand JOBHUNT_DATA_DIR",
+		},
+		"xdg expansion": {
+			values:  map[string]string{envXDGDataHome: "~/data"},
+			goos:    "linux",
+			wantErr: "home directory is required to expand JOBHUNT_DATA_DIR",
+		},
+	} {
+		name := name
+		tc := tc
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := load(env(tc.values), loadOptions{goos: tc.goos})
+			if err == nil {
+				t.Fatalf("load() error = nil, want error")
+			}
+			if err.Error() != tc.wantErr {
+				t.Fatalf("load() error = %q, want %q", err.Error(), tc.wantErr)
+			}
+		})
 	}
 }
 

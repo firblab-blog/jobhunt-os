@@ -39,6 +39,7 @@ const (
 const (
 	envAppData     = "APPDATA"
 	envXDGDataHome = "XDG_DATA_HOME"
+	appPathName    = "jobhunt-os"
 )
 
 type Config struct {
@@ -253,41 +254,69 @@ func validateAuthConfig(authMode string, addr string, allowInsecureNoAuth bool, 
 
 func dataDir(getenv func(string) string, targetGOOS string, homeDir string) (string, error) {
 	if explicit := strings.TrimSpace(getenv(EnvDataDir)); explicit != "" {
-		expanded, err := expandHome(explicit, homeDir)
-		if err != nil {
-			return "", err
-		}
-		return cleanDataPath(expanded), nil
+		return explicitDataDir(explicit, homeDir)
 	}
 
 	switch targetGOOS {
 	case "darwin":
-		if strings.TrimSpace(homeDir) == "" {
-			return "", fmt.Errorf("home directory is required to default %s", EnvDataDir)
-		}
-		return cleanDataPath(filepath.Join(homeDir, "Library", "Application Support", "jobhunt-os")), nil
+		return defaultDarwinDataDir(homeDir)
 	case "windows":
-		appData := strings.TrimSpace(getenv(envAppData))
-		if appData == "" {
-			if strings.TrimSpace(homeDir) == "" {
-				return "", fmt.Errorf("%s or home directory is required to default %s", envAppData, EnvDataDir)
-			}
-			appData = windowsJoin(homeDir, "AppData", "Roaming")
-		}
-		return cleanDataPath(windowsJoin(appData, "jobhunt-os")), nil
+		return defaultWindowsDataDir(getenv, homeDir)
 	default:
-		if xdgDataHome := strings.TrimSpace(getenv(envXDGDataHome)); xdgDataHome != "" {
-			expanded, err := expandHome(xdgDataHome, homeDir)
-			if err != nil {
-				return "", err
-			}
-			return cleanDataPath(filepath.Join(expanded, "jobhunt-os")), nil
-		}
-		if strings.TrimSpace(homeDir) == "" {
-			return "", fmt.Errorf("home directory is required to default %s", EnvDataDir)
-		}
-		return cleanDataPath(filepath.Join(homeDir, ".local", "share", "jobhunt-os")), nil
+		return defaultUnixDataDir(getenv, homeDir)
 	}
+}
+
+func explicitDataDir(path string, homeDir string) (string, error) {
+	expanded, err := expandHome(path, homeDir)
+	if err != nil {
+		return "", err
+	}
+	return cleanDataPath(expanded), nil
+}
+
+func defaultDarwinDataDir(homeDir string) (string, error) {
+	if strings.TrimSpace(homeDir) == "" {
+		return "", fmt.Errorf("home directory is required to default %s", EnvDataDir)
+	}
+	return cleanDataPath(filepath.Join(homeDir, "Library", "Application Support", appPathName)), nil
+}
+
+func defaultWindowsDataDir(getenv func(string) string, homeDir string) (string, error) {
+	appData, err := windowsAppDataDir(getenv, homeDir)
+	if err != nil {
+		return "", err
+	}
+	return cleanDataPath(windowsJoin(appData, appPathName)), nil
+}
+
+func windowsAppDataDir(getenv func(string) string, homeDir string) (string, error) {
+	appData := strings.TrimSpace(getenv(envAppData))
+	if appData != "" {
+		return appData, nil
+	}
+	if strings.TrimSpace(homeDir) == "" {
+		return "", fmt.Errorf("%s or home directory is required to default %s", envAppData, EnvDataDir)
+	}
+	return windowsJoin(homeDir, "AppData", "Roaming"), nil
+}
+
+func defaultUnixDataDir(getenv func(string) string, homeDir string) (string, error) {
+	if xdgDataHome := strings.TrimSpace(getenv(envXDGDataHome)); xdgDataHome != "" {
+		return xdgDataDir(xdgDataHome, homeDir)
+	}
+	if strings.TrimSpace(homeDir) == "" {
+		return "", fmt.Errorf("home directory is required to default %s", EnvDataDir)
+	}
+	return cleanDataPath(filepath.Join(homeDir, ".local", "share", appPathName)), nil
+}
+
+func xdgDataDir(xdgDataHome string, homeDir string) (string, error) {
+	expanded, err := expandHome(xdgDataHome, homeDir)
+	if err != nil {
+		return "", err
+	}
+	return cleanDataPath(filepath.Join(expanded, appPathName)), nil
 }
 
 func expandHome(path string, homeDir string) (string, error) {

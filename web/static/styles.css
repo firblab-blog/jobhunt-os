@@ -1121,6 +1121,11 @@ main {
   min-width: 0;
 }
 
+.panel-header h1 {
+  font-size: 17px;
+  line-height: 1.25;
+}
+
 .filter-form {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(180px, 240px) auto;
@@ -2148,7 +2153,7 @@ tr:last-child td {
   min-width: 0;
 }
 
-.opportunity-title h2 {
+.opportunity-title h1 {
   font-size: 26px;
   line-height: 1.12;
 }
