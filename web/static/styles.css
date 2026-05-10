@@ -266,7 +266,7 @@ h3 {
 .brand-logo-link {
   display: inline-flex;
   align-items: center;
-  width: min(250px, 52vw);
+  width: min(175px, 44vw);
 }
 
 .brand-logo {
@@ -299,9 +299,9 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 28px;
-  min-height: 82px;
-  padding: 18px 40px;
+  gap: 24px;
+  min-height: 64px;
+  padding: 10px 40px;
   border-bottom: 1px solid var(--border);
   background: var(--topbar-bg);
   box-shadow: var(--topbar-shadow);
@@ -309,7 +309,7 @@ textarea:focus-visible {
 }
 
 .topbar-heading {
-  min-width: 220px;
+  min-width: 180px;
 }
 
 .topbar-actions {
@@ -343,9 +343,9 @@ nav {
 nav a {
   display: inline-flex;
   align-items: center;
-  min-height: 34px;
+  min-height: 30px;
   border-radius: var(--radius-sm);
-  padding: 0 11px;
+  padding: 0 10px;
   color: var(--muted-strong);
   font-size: 13px;
   font-weight: 680;
@@ -2971,7 +2971,7 @@ label strong {
   .topbar {
     position: static;
     align-items: flex-start;
-    padding: 18px 28px;
+    padding: 10px 28px;
   }
 
   nav {
@@ -3049,7 +3049,7 @@ label strong {
 
   .topbar {
     display: block;
-    padding: 16px 18px;
+    padding: 10px 18px;
   }
 
   .topbar-heading {
@@ -3064,7 +3064,7 @@ label strong {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
-    margin-top: 14px;
+    margin-top: 10px;
   }
 
   nav {
