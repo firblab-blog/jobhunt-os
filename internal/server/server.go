@@ -445,6 +445,14 @@ type applicationDetailRenderData struct {
 	Status      int
 }
 
+type postingUpdateRequest struct {
+	Values     postingFormValues
+	PostingURL string
+	HasFile    bool
+	File       multipart.File
+	FileHeader *multipart.FileHeader
+}
+
 type postingFormValues struct {
 	PostingURL string
 }
@@ -2264,9 +2272,7 @@ func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 		handleFormParseError(w, err)
 		return
 	}
-	if file != nil {
-		defer file.Close()
-	}
+	defer closeMultipartFile(file)
 	if err := verifyCSRF(r, time.Now()); err != nil {
 		http.Error(w, invalidCSRFTokenMessage, http.StatusBadRequest)
 		return
@@ -2274,25 +2280,10 @@ func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 
 	values := documentFormValuesFromForm(form)
 	document := documentFromUploadForm(form)
-	if !hasPostingPDF(fileHeader) {
-		form.errors.Add("document_file", "Choose a PDF to upload.")
-	}
-	if hasPostingPDF(fileHeader) && s.dataDir == "" {
-		form.errors.Add("document_file", documentStorageNotConfigured)
-	}
-	if hasPostingPDF(fileHeader) && !form.errors.Any() {
-		if err := validatePostingPDF(file, fileHeader); err != nil {
-			form.errors.Add("document_file", "Choose a valid PDF under 20 MB.")
-		}
-	}
-	if !form.errors.Any() {
-		if _, err := s.saveDocumentPDF(r.Context(), document, file, fileHeader); err != nil {
-			form.errors.Add("form", "Could not save document. Please check the fields and try again.")
-			slog.Error("create document", "error", err)
-		} else {
-			http.Redirect(w, r, documentsPath, http.StatusSeeOther)
-			return
-		}
+	s.validateRequiredDocumentPDF(form, file, fileHeader)
+	if !form.errors.Any() && s.saveUploadedDocument(r.Context(), form, document, file, fileHeader) {
+		http.Redirect(w, r, documentsPath, http.StatusSeeOther)
+		return
 	}
 
 	documents, err := s.store.ListDocuments(r.Context())
@@ -2301,6 +2292,43 @@ func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderDocumentsIndex(w, r, documents, values, form.errors, http.StatusUnprocessableEntity)
+}
+
+func closeMultipartFile(file multipart.File) {
+	if file != nil {
+		_ = file.Close()
+	}
+}
+
+func (s *Server) validateRequiredDocumentPDF(form *formData, file multipart.File, fileHeader *multipart.FileHeader) {
+	if !hasPostingPDF(fileHeader) {
+		form.errors.Add("document_file", "Choose a PDF to upload.")
+		return
+	}
+	s.validateOptionalPostingPDF(form, "document_file", file, fileHeader)
+}
+
+func (s *Server) validateOptionalPostingPDF(form *formData, field string, file multipart.File, fileHeader *multipart.FileHeader) bool {
+	if !hasPostingPDF(fileHeader) {
+		return false
+	}
+	if s.dataDir == "" {
+		form.errors.Add(field, documentStorageNotConfigured)
+		return true
+	}
+	if err := validatePostingPDF(file, fileHeader); err != nil {
+		form.errors.Add(field, "Choose a valid PDF under 20 MB.")
+	}
+	return true
+}
+
+func (s *Server) saveUploadedDocument(ctx context.Context, form *formData, document model.Document, file multipart.File, fileHeader *multipart.FileHeader) bool {
+	if _, err := s.saveDocumentPDF(ctx, document, file, fileHeader); err != nil {
+		form.errors.Add("form", "Could not save document. Please check the fields and try again.")
+		slog.Error("create document", "error", err)
+		return false
+	}
+	return true
 }
 
 func (s *Server) documentsShow(w http.ResponseWriter, r *http.Request) {
@@ -2479,9 +2507,7 @@ func (s *Server) applicationsCreate(w http.ResponseWriter, r *http.Request) {
 		handleFormParseError(w, err)
 		return
 	}
-	if file != nil {
-		defer file.Close()
-	}
+	defer closeMultipartFile(file)
 	if err := verifyCSRF(r, time.Now()); err != nil {
 		http.Error(w, invalidCSRFTokenMessage, http.StatusBadRequest)
 		return
@@ -2489,32 +2515,36 @@ func (s *Server) applicationsCreate(w http.ResponseWriter, r *http.Request) {
 
 	values := applicationFormValuesFromForm(form)
 	app := applicationFromForm(form)
-	hasFile := hasPostingPDF(fileHeader)
-	if hasFile && s.dataDir == "" {
-		form.errors.Add(postingPDFFieldName, documentStorageNotConfigured)
-	}
-	if hasFile && !form.errors.Any() {
-		if err := validatePostingPDF(file, fileHeader); err != nil {
-			form.errors.Add(postingPDFFieldName, "Choose a valid PDF under 20 MB.")
-		}
-	}
+	hasFile := s.validateOptionalPostingPDF(form, postingPDFFieldName, file, fileHeader)
 	if !form.errors.Any() {
-		created, err := s.store.CreateApplication(r.Context(), app)
-		if err != nil {
-			form.errors.Add("form", "Could not save application. Please check the fields and try again.")
-			slog.Error("create application", "error", err)
-		} else {
-			if hasFile {
-				if _, err := s.savePostingPDF(r.Context(), created, file, fileHeader); err != nil {
-					slog.Error("save posting pdf for new application", "application_id", created.ID, "error", err)
-				}
-			}
+		created, saved := s.createApplicationFromForm(r.Context(), form, app)
+		if saved {
+			s.saveInitialPostingPDF(r.Context(), created, file, fileHeader, hasFile)
 			http.Redirect(w, r, applicationsPath+"/"+created.ID, http.StatusSeeOther)
 			return
 		}
 	}
 
 	s.renderApplicationForm(w, r, values, form.errors, http.StatusUnprocessableEntity)
+}
+
+func (s *Server) createApplicationFromForm(ctx context.Context, form *formData, app model.Application) (model.Application, bool) {
+	created, err := s.store.CreateApplication(ctx, app)
+	if err != nil {
+		form.errors.Add("form", "Could not save application. Please check the fields and try again.")
+		slog.Error("create application", "error", err)
+		return model.Application{}, false
+	}
+	return created, true
+}
+
+func (s *Server) saveInitialPostingPDF(ctx context.Context, app model.Application, file multipart.File, fileHeader *multipart.FileHeader, hasFile bool) {
+	if !hasFile {
+		return
+	}
+	if _, err := s.savePostingPDF(ctx, app, file, fileHeader); err != nil {
+		slog.Error("save posting pdf for new application", "application_id", app.ID, "error", err)
+	}
 }
 
 func (s *Server) applicationsShow(w http.ResponseWriter, r *http.Request) {
@@ -2681,9 +2711,7 @@ func (s *Server) applicationsUpdatePosting(w http.ResponseWriter, r *http.Reques
 		handleFormParseError(w, err)
 		return
 	}
-	if file != nil {
-		defer file.Close()
-	}
+	defer closeMultipartFile(file)
 	if err := verifyCSRF(r, time.Now()); err != nil {
 		http.Error(w, invalidCSRFTokenMessage, http.StatusBadRequest)
 		return
@@ -2699,39 +2727,15 @@ func (s *Server) applicationsUpdatePosting(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	values := postingFormValuesFromForm(form)
-	postingURL := strings.TrimSpace(values.PostingURL)
-	if postingURL != "" && !model.ValidHTTPURL(postingURL) {
-		form.errors.Add(postingURLFieldName, postingURLValidationMessage)
-	}
-	hasFile := fileHeader != nil && fileHeader.Filename != ""
-	if !hasFile && postingURL == app.PostingURL {
-		form.errors.Add("form", "Update the original link or choose a PDF to attach.")
-	}
-	if hasFile && s.dataDir == "" {
-		form.errors.Add(postingPDFFieldName, documentStorageNotConfigured)
+	update := postingUpdateRequestFromForm(form, file, fileHeader)
+	s.validatePostingUpdate(form, app, update)
+
+	if !form.errors.Any() {
+		app = s.updatePostingURL(r.Context(), form, app, update.PostingURL)
 	}
 
 	if !form.errors.Any() {
-		if postingURL != app.PostingURL {
-			updated, err := s.store.UpdateApplicationPostingURL(r.Context(), app.ID, postingURL)
-			if err != nil {
-				form.errors.Add("form", "Could not update original link.")
-				slog.Error("update application posting url", "error", err)
-			} else {
-				app = updated
-			}
-		}
-	}
-
-	if !form.errors.Any() && hasFile {
-		document, err := s.savePostingPDF(r.Context(), app, file, fileHeader)
-		if err != nil {
-			form.errors.Add(postingPDFFieldName, "Could not save PDF. Choose a valid PDF under 20 MB.")
-			slog.Error("save posting pdf", "error", err)
-		} else {
-			documents = append([]model.ApplicationDocument{document}, documents...)
-		}
+		documents = s.appendPostingPDF(r.Context(), form, app, documents, update)
 	}
 
 	if !form.errors.Any() {
@@ -2750,11 +2754,60 @@ func (s *Server) applicationsUpdatePosting(w http.ResponseWriter, r *http.Reques
 			Values: applicationStatusFormValuesFromApplication(app),
 		},
 		PostingForm: postingFormData{
-			Values: values,
+			Values: update.Values,
 			Errors: form.errors,
 		},
 		Status: http.StatusUnprocessableEntity,
 	})
+}
+
+func postingUpdateRequestFromForm(form *formData, file multipart.File, fileHeader *multipart.FileHeader) postingUpdateRequest {
+	values := postingFormValuesFromForm(form)
+	return postingUpdateRequest{
+		Values:     values,
+		PostingURL: strings.TrimSpace(values.PostingURL),
+		HasFile:    fileHeader != nil && fileHeader.Filename != "",
+		File:       file,
+		FileHeader: fileHeader,
+	}
+}
+
+func (s *Server) validatePostingUpdate(form *formData, app model.Application, update postingUpdateRequest) {
+	if update.PostingURL != "" && !model.ValidHTTPURL(update.PostingURL) {
+		form.errors.Add(postingURLFieldName, postingURLValidationMessage)
+	}
+	if !update.HasFile && update.PostingURL == app.PostingURL {
+		form.errors.Add("form", "Update the original link or choose a PDF to attach.")
+	}
+	if update.HasFile && s.dataDir == "" {
+		form.errors.Add(postingPDFFieldName, documentStorageNotConfigured)
+	}
+}
+
+func (s *Server) updatePostingURL(ctx context.Context, form *formData, app model.Application, postingURL string) model.Application {
+	if postingURL == app.PostingURL {
+		return app
+	}
+	updated, err := s.store.UpdateApplicationPostingURL(ctx, app.ID, postingURL)
+	if err != nil {
+		form.errors.Add("form", "Could not update original link.")
+		slog.Error("update application posting url", "error", err)
+		return app
+	}
+	return updated
+}
+
+func (s *Server) appendPostingPDF(ctx context.Context, form *formData, app model.Application, documents []model.ApplicationDocument, update postingUpdateRequest) []model.ApplicationDocument {
+	if !update.HasFile {
+		return documents
+	}
+	document, err := s.savePostingPDF(ctx, app, update.File, update.FileHeader)
+	if err != nil {
+		form.errors.Add(postingPDFFieldName, "Could not save PDF. Choose a valid PDF under 20 MB.")
+		slog.Error("save posting pdf", "error", err)
+		return documents
+	}
+	return append([]model.ApplicationDocument{document}, documents...)
 }
 
 func (s *Server) renderApplicationForm(w http.ResponseWriter, r *http.Request, values applicationFormValues, errors formErrors, status int) {
