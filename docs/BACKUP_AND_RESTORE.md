@@ -2,7 +2,7 @@
 
 JobHunt OS stores its durable application data in the configured data directory.
 For the recommended Docker Compose install, that directory is `./data` next to
-`docker-compose.yml`.
+`docker-compose.yml` inside `deploy/`.
 
 That directory can contain application notes, contacts, recruiter messages,
 document metadata, uploaded files, and the SQLite database. Treat backups as
@@ -68,12 +68,13 @@ This creates `jobhunt-os-backup-YYYYMMDD.tgz.age`.
 To restore or move JobHunt OS to another machine:
 
 1. Install Docker and Docker Compose on the target machine.
-2. Copy `docker-compose.yml` to the target install directory.
+2. Clone the repository or copy the `deploy/` directory to the target machine.
 3. Decrypt the backup if it was encrypted.
 4. Stop JobHunt OS if it is already running.
 5. Copy or extract the backed-up `data/` directory into the same directory,
    preserving file permissions.
-6. Start the app.
+6. Restore or recreate `deploy/.env` and `deploy/.secrets/admin-password`.
+7. Start the app from `deploy/`.
 
 For a plain tar archive, replace `YYYYMMDD` with the date in your backup
 filename:
@@ -110,11 +111,15 @@ should end up with this shape:
 
 ```text
 jobhunt-os/
-  docker-compose.yml
-  data/
-    jobhunt-os.db
-    documents/
-    tmp/
+  deploy/
+    docker-compose.yml
+    .env
+    .secrets/
+      admin-password
+    data/
+      jobhunt-os.db
+      documents/
+      tmp/
 ```
 
 When restoring on the same Linux host, extracting as root with `tar -xzpf` keeps
@@ -122,8 +127,9 @@ the archived numeric owner IDs and file modes. On another host, the old numeric
 UID/GID may belong to a different user. In that case, create or update `.env`
 before starting the app:
 
-```sh
-printf "JOBHUNT_UID=%s\nJOBHUNT_GID=%s\n" "$(id -u)" "$(id -g)" > .env
+```text
+JOBHUNT_UID=<host-uid>
+JOBHUNT_GID=<host-gid>
 ```
 
 Then run `docker compose up -d`. The Compose data-prep helper will create any

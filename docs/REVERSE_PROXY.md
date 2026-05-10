@@ -5,11 +5,12 @@ and let a reverse proxy handle HTTPS and the public hostname.
 
 JobHunt OS has optional built-in login authentication through
 `JOBHUNT_AUTH_MODE=login`, `JOBHUNT_AUTH_USERNAME`, and
-`JOBHUNT_AUTH_PASSWORD_HASH`. If the reverse proxy makes the app reachable by
-other people or by the public internet, prefer built-in login authentication.
-HTTP Basic auth remains available as a fallback, legacy, or simple mode, but it
-is not the preferred mode for public deployments. A trusted proxy-level
-authentication layer can also be used when that fits the deployment.
+`JOBHUNT_AUTH_PASSWORD_FILE` or `JOBHUNT_AUTH_PASSWORD_HASH`. If the reverse
+proxy makes the app reachable by other people or by the public internet, prefer
+built-in login authentication. HTTP Basic auth remains available as a fallback,
+legacy, or simple mode, but it is not the preferred mode for public deployments.
+A trusted proxy-level authentication layer can also be used when that fits the
+deployment.
 
 Built-in authentication is not transport security. It is suitable behind the
 default localhost binding, behind an HTTPS reverse proxy, over a VPN, or over
@@ -30,19 +31,21 @@ For remote or public access, the app environment should include:
 ```text
 JOBHUNT_AUTH_MODE=login
 JOBHUNT_AUTH_USERNAME=<username>
-JOBHUNT_AUTH_PASSWORD_HASH='argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>'
+JOBHUNT_AUTH_PASSWORD_FILE=/run/secrets/jobhunt_admin_password
 JOBHUNT_SECURE_COOKIES=true
 ```
 
-Store the real username and password hash in a local `.env`, CI variables,
-Vault, or an equivalent secret store. Do not commit plaintext passwords or real
-password hashes to a public repository.
+For Docker Compose, the default host-side password secret is
+`deploy/.secrets/admin-password`. Store real usernames, password files, and
+password hashes in local ignored files, CI variables, Vault, or an equivalent
+secret store. Do not commit plaintext passwords or real password hashes to a
+public repository.
 
 The default Compose file already uses this host binding:
 
 ```yaml
 ports:
-  - "127.0.0.1:8080:8080"
+  - "${JOBHUNT_PUBLIC_BIND:-127.0.0.1}:${JOBHUNT_PUBLIC_PORT:-8080}:8080"
 ```
 
 Inside the container, `JOBHUNT_ADDR=0.0.0.0:8080` is expected. Docker needs the
@@ -133,7 +136,6 @@ JobHunt OS is local-first and has no multi-user security model. If you expose it
 to the internet, put it behind HTTPS, prefer `JOBHUNT_AUTH_MODE=login`, enable
 secure cookies, add rate limiting or fail2ban-style blocking for repeated
 failures, keep Docker and the host patched, and verify that the hostname is
-intended to be reachable. Deployed non-loopback instances, including
-firblab-v2/GitLab CI deployments, must use login auth. Keep secure cookies off
-for direct plain-HTTP LAN access; turn them on when the app is accessed through
-a trusted HTTPS reverse proxy.
+intended to be reachable. Deployed non-loopback instances must use login auth.
+Keep secure cookies off for direct plain-HTTP LAN access; turn them on when the
+app is accessed through a trusted HTTPS reverse proxy.

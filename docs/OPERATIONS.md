@@ -1,7 +1,7 @@
 # Operations
 
 For the provided Docker Compose install, durable state lives in `./data` next to
-`docker-compose.yml`.
+`docker-compose.yml` inside `deploy/`.
 
 ## Common Commands
 
@@ -82,8 +82,8 @@ data/
 ```
 
 The `jobhunt-os-init` Compose helper creates `documents/` and `tmp/` before the
-app starts and sets ownership for `JOBHUNT_UID`/`JOBHUNT_GID` from `.env` when
-those values are present.
+app starts and sets ownership for `JOBHUNT_UID`/`JOBHUNT_GID` from
+`deploy/.env` when those values are present.
 
 When restoring from an archive, use the restore steps in
 [BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md) so file permissions are preserved
@@ -94,7 +94,7 @@ host.
 
 When asking for help, collect:
 
-- JobHunt OS image tag, such as `latest`, `v0.1.4`, or `sha-<shortsha>`
+- JobHunt OS image tag, such as `latest`, `v0.1.9`, or `sha-<shortsha>`
 - Docker and Docker Compose versions
 - Output from `docker compose ps`
 - Relevant `docker compose logs -f` lines from startup or the failure

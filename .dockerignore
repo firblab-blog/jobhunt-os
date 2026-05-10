@@ -10,6 +10,8 @@ secrets/
 bin
 coverage
 data
+deploy/data
+deploy/.secrets
 docs/SECURITY_AUDIT.md
 dist
 tmp

@@ -100,11 +100,12 @@ JobHunt OS does not provide these protections yet:
 - Docker Compose binds the host port to `127.0.0.1:8080` by default.
 - Built-in authentication is optional and disabled by default. New shared,
   remote, or reverse-proxy deployments should use `JOBHUNT_AUTH_MODE=login`
-  with `JOBHUNT_AUTH_USERNAME` and `JOBHUNT_AUTH_PASSWORD_HASH`. Basic auth is
-  retained as fallback, legacy, or simple compatibility mode, but it is not the
-  preferred mode for public deployments. This is an access-control layer, not
-  encryption; use it only over localhost, HTTPS, VPN, or another
-  encrypted/trusted channel.
+  with `JOBHUNT_AUTH_USERNAME` and either `JOBHUNT_AUTH_PASSWORD_FILE` or
+  `JOBHUNT_AUTH_PASSWORD_HASH`. Docker Compose installs use a password file
+  mounted as a Docker secret by default. Basic auth is retained as fallback,
+  legacy, or simple compatibility mode, but it is not the preferred mode for
+  public deployments. This is an access-control layer, not encryption; use it
+  only over localhost, HTTPS, VPN, or another encrypted/trusted channel.
 - Login auth uses server-side SQLite sessions. Browser cookies carry only a
   session token; the database stores a token hash plus session timestamps.
   `JOBHUNT_SESSION_IDLE_TIMEOUT` controls the idle timeout and
@@ -171,16 +172,22 @@ login authentication with:
 
 - `JOBHUNT_AUTH_MODE=login`
 - `JOBHUNT_AUTH_USERNAME`
-- `JOBHUNT_AUTH_PASSWORD_HASH`
+- `JOBHUNT_AUTH_PASSWORD_FILE` or `JOBHUNT_AUTH_PASSWORD_HASH`
 
-The password hash uses this format:
+For the Docker Compose install, put a long password or passphrase in the local
+secret file configured by `JOBHUNT_AUTH_PASSWORD_SECRET_FILE`; the default is
+`deploy/.secrets/admin-password`. The app reads that password file at startup,
+validates the password policy, and hashes the password in memory with Argon2id.
+
+Advanced deployments may provide a password hash directly. The preferred hash
+format is:
 
 ```text
 argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>
 ```
 
-Argon2id is preferred for new hashes. Existing PBKDF2-SHA256 hashes remain
-supported for compatibility if your install already uses one:
+Existing PBKDF2-SHA256 hashes remain supported for compatibility if your install
+already uses one:
 
 ```text
 pbkdf2-sha256$<iterations>$<salt-base64url>$<digest-base64url>
@@ -189,15 +196,15 @@ pbkdf2-sha256$<iterations>$<salt-base64url>$<digest-base64url>
 Use passwords or passphrases with at least 15 characters. Passphrases are
 encouraged. JobHunt OS does not require uppercase/lowercase/number/symbol
 composition rules and does not force periodic password rotation; rotate when a
-password may have been exposed or when access should be removed. The built-in
-Argon2id hash helper enforces this policy when it creates a hash; if you
-generate a supported hash with another tool, choose a password that meets the
-same policy because the app cannot recover password strength from the hash.
+password may have been exposed or when access should be removed. Password-file
+configuration enforces this policy at startup; if you generate a supported hash
+with another tool, choose a password that meets the same policy because the app
+cannot recover password strength from the hash.
 
 Do not store plaintext passwords or real password hashes in the repository,
-Compose file, screenshots, docs, or other public material. Prefer a local
-`.env` file, CI variables, Vault, systemd environment file, or another secret
-manager appropriate for the host.
+Compose file, screenshots, docs, or other public material. Prefer local ignored
+secret files, Docker secrets, CI variables, Vault, systemd credential files, or
+another secret manager appropriate for the host.
 
 Use built-in auth only over localhost, HTTPS, VPN, or another encrypted/trusted
 channel. Set `JOBHUNT_SECURE_COOKIES=true` when users access the app through an
@@ -207,9 +214,8 @@ browsers do not send `Secure` cookies over HTTP. Set
 sanitizes forwarded headers, because those headers are used for login
 throttling client identity. If the app is reachable over plain HTTP by other
 people, credentials and private job-hunt data can be observed in transit.
-Deployed non-loopback instances, including firblab-v2 GitLab CI deployments,
-must use login auth; HTTPS plus secure cookies is the preferred remote-access
-posture when a trusted reverse proxy is in front.
+Deployed non-loopback instances must use login auth; HTTPS plus secure cookies
+is the preferred remote-access posture when a trusted reverse proxy is in front.
 
 ## Brute-Force Protection
 

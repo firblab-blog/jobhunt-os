@@ -60,7 +60,8 @@ When running with the provided Docker image, the default is:
 /data
 ```
 
-The provided Compose file mounts that container path from a host directory:
+The provided Compose file mounts that container path from a host directory
+relative to `deploy/`:
 
 ```yaml
 volumes:
@@ -70,7 +71,7 @@ volumes:
 That means the data lives in `./data` next to your `docker-compose.yml` on the
 host.
 
-The Compose file also reads these optional values from `.env`:
+The Compose file also reads these optional values from `deploy/.env`:
 
 ```text
 JOBHUNT_UID
@@ -78,10 +79,11 @@ JOBHUNT_GID
 ```
 
 When set, the app container runs with that host UID/GID and the data-prep helper
-sets `./data` ownership to match. On Linux, add them with:
+sets `./data` ownership to match. On Linux, set:
 
-```sh
-printf "JOBHUNT_UID=%s\nJOBHUNT_GID=%s\n" "$(id -u)" "$(id -g)" >> .env
+```text
+JOBHUNT_UID=<host-uid>
+JOBHUNT_GID=<host-gid>
 ```
 
 The prepared layout is:
@@ -109,11 +111,11 @@ Accepted values:
 - `login`
 - `basic`
 
-If unset, JobHunt OS uses `basic` when both `JOBHUNT_AUTH_USERNAME` and
-`JOBHUNT_AUTH_PASSWORD_HASH` are set, and `disabled` otherwise. For new
-deployments, prefer `JOBHUNT_AUTH_MODE=login`. Basic auth is a fallback,
-legacy, or simple compatibility mode; it is not the preferred mode for public
-deployments.
+If unset, JobHunt OS uses `basic` when auth credentials are configured with
+`JOBHUNT_AUTH_USERNAME` and either `JOBHUNT_AUTH_PASSWORD_FILE` or
+`JOBHUNT_AUTH_PASSWORD_HASH`, and `disabled` otherwise. For new deployments,
+prefer `JOBHUNT_AUTH_MODE=login`. Basic auth is a fallback, legacy, or simple
+compatibility mode; it is not the preferred mode for public deployments.
 
 Non-loopback binds refuse `JOBHUNT_AUTH_MODE=disabled` unless
 `JOBHUNT_ALLOW_INSECURE_NO_AUTH=true` is set for a deployment protected
@@ -141,6 +143,37 @@ responses. Use it only over `localhost`, an HTTPS reverse proxy, a VPN, or
 another encrypted/trusted channel. Do not expose it over plain HTTP on an
 untrusted network.
 
+### `JOBHUNT_AUTH_PASSWORD_FILE`
+
+Path to a file containing the password for built-in login or HTTP Basic
+authentication.
+
+Default:
+
+```text
+unset
+```
+
+The Docker Compose install sets this inside the container:
+
+```text
+JOBHUNT_AUTH_PASSWORD_FILE=/run/secrets/jobhunt_admin_password
+```
+
+The Compose secret source defaults to this host-side file from `deploy/`:
+
+```text
+.secrets/admin-password
+```
+
+Put only the password or passphrase in that file. A trailing newline is ignored
+so text editors and `printf`-style file creation remain usable. At startup,
+JobHunt OS reads the password file, validates the password policy, hashes the
+password in memory with Argon2id, and uses the hash for authentication.
+
+`JOBHUNT_AUTH_PASSWORD_FILE` and `JOBHUNT_AUTH_PASSWORD_HASH` are mutually
+exclusive. Prefer the password file for Docker Compose installs.
+
 ### `JOBHUNT_AUTH_PASSWORD_HASH`
 
 Password hash for built-in login or HTTP Basic authentication.
@@ -151,42 +184,12 @@ Default:
 unset
 ```
 
-Argon2id is the preferred hash format:
+This is mainly for existing installs, CI/deployment secret stores that already
+manage hashed values, or non-Compose deployments. Argon2id is the preferred hash
+format:
 
 ```text
 argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>
-```
-
-Generate an Argon2id hash locally without putting the plaintext password in
-shell history. This command uses Python's `argon2-cffi` package:
-
-```sh
-JOBHUNT_AUTH_PASSWORD_HASH="$(python3 - <<'PY'
-import base64
-import getpass
-import secrets
-import sys
-
-from argon2.low_level import Type, hash_secret_raw
-
-password = getpass.getpass("JobHunt OS password: ")
-if len(password) < 15 or len(password) > 1024 or not password.isprintable():
-    sys.exit("Password must be 15-1024 printable characters.")
-salt = secrets.token_bytes(16)
-digest = hash_secret_raw(
-    password.encode("utf-8"),
-    salt,
-    time_cost=2,
-    memory_cost=19456,
-    parallelism=1,
-    hash_len=32,
-    type=Type.ID,
-    version=19,
-)
-encode = lambda value: base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
-print(f"argon2id$v=19$m=19456,t=2,p=1${encode(salt)}${encode(digest)}")
-PY
-)"
 ```
 
 Existing PBKDF2-SHA256 hashes remain supported for compatibility if your
@@ -195,19 +198,6 @@ install already landed with one:
 ```text
 pbkdf2-sha256$<iterations>$<salt-base64url>$<digest-base64url>
 ```
-
-Then store only the username and hash in the runtime environment, for example
-in a local `.env` file used by Docker Compose:
-
-```text
-JOBHUNT_AUTH_MODE=login
-JOBHUNT_AUTH_USERNAME=<username>
-JOBHUNT_AUTH_PASSWORD_HASH='argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>'
-```
-
-The single quotes matter for Docker Compose `.env` files because password
-hashes contain `$`. Alternatively, escape each dollar sign as `$$` in unquoted
-examples.
 
 Password policy is intentionally length-focused:
 
@@ -223,8 +213,8 @@ meets the same policy; the app cannot recover password length or composition
 from an already-generated hash.
 
 Do not commit plaintext passwords or real password hashes to public
-repositories. Store runtime secrets in local `.env` files, CI variables, Vault,
-or an equivalent secret store for the deployment environment.
+repositories. Store runtime secrets in local ignored files, Docker secrets, CI
+variables, Vault, or an equivalent secret store for the deployment environment.
 
 ### `JOBHUNT_SECURE_COOKIES`
 
@@ -305,12 +295,12 @@ port binding. This is why `0.0.0.0` inside the container does not mean the app i
 automatically exposed on the host network.
 
 Because the process binds non-loopback inside the container, the provided
-Compose file defaults to `JOBHUNT_AUTH_MODE=login` and requires
-`JOBHUNT_AUTH_USERNAME` and `JOBHUNT_AUTH_PASSWORD_HASH` from the local `.env`.
-Deployed non-loopback instances, including firblab-v2/GitLab CI deployments,
-must use login auth. Set `JOBHUNT_SECURE_COOKIES=true` when a trusted reverse
-proxy serves the app over HTTPS; keep `JOBHUNT_SECURE_COOKIES=false` for direct
-plain-HTTP LAN access.
+Compose file defaults to `JOBHUNT_AUTH_MODE=login`, requires
+`JOBHUNT_AUTH_USERNAME` from `deploy/.env`, and reads the password from the
+configured Docker secret file. Deployed non-loopback instances must use login
+auth. Set `JOBHUNT_SECURE_COOKIES=true` when a trusted reverse proxy serves the
+app over HTTPS; keep `JOBHUNT_SECURE_COOKIES=false` for direct plain-HTTP LAN
+access.
 
 ## Settings Page
 
@@ -320,7 +310,7 @@ The in-app Settings page is available at:
 /settings
 ```
 
-As of `v0.1.4`, it contains:
+As of `v0.1.9`, it contains:
 
 - theme selection: system, light, and dark
 - JSON export download

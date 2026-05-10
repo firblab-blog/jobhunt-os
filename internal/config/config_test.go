@@ -1,7 +1,9 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -122,6 +124,85 @@ func TestLoadParsesAuthEnv(t *testing.T) {
 	}
 }
 
+func TestLoadParsesAuthPasswordFile(t *testing.T) {
+	t.Parallel()
+
+	password := "correct horse battery staple"
+	passwordFile := filepath.Join(t.TempDir(), "admin-password")
+	if err := os.WriteFile(passwordFile, []byte(password+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg, err := Load(env(map[string]string{
+		EnvAuthMode:         AuthModeLogin,
+		EnvAuthUsername:     "avery",
+		EnvAuthPasswordFile: passwordFile,
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.AuthUsername != "avery" {
+		t.Fatalf("AuthUsername = %q, want avery", cfg.AuthUsername)
+	}
+	if cfg.AuthMode != AuthModeLogin {
+		t.Fatalf("AuthMode = %q, want %q", cfg.AuthMode, AuthModeLogin)
+	}
+	passwordHash, err := auth.ParsePasswordHash(cfg.AuthPasswordHash)
+	if err != nil {
+		t.Fatalf("ParsePasswordHash() error = %v", err)
+	}
+	if !passwordHash.Verify(password) {
+		t.Fatalf("generated password hash did not verify password from file")
+	}
+	if strings.Contains(cfg.AuthPasswordHash, password) {
+		t.Fatalf("AuthPasswordHash contains plaintext password")
+	}
+}
+
+func TestLoadRejectsAuthPasswordHashAndFile(t *testing.T) {
+	t.Parallel()
+
+	passwordFile := filepath.Join(t.TempDir(), "admin-password")
+	if err := os.WriteFile(passwordFile, []byte("correct horse battery staple"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(env(map[string]string{
+		EnvAuthMode:         AuthModeLogin,
+		EnvAuthUsername:     "avery",
+		EnvAuthPasswordHash: testPasswordHash(t),
+		EnvAuthPasswordFile: passwordFile,
+	}))
+	if err == nil {
+		t.Fatalf("Load() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("Load() error = %v, want mutual exclusion error", err)
+	}
+}
+
+func TestLoadRejectsWeakAuthPasswordFile(t *testing.T) {
+	t.Parallel()
+
+	passwordFile := filepath.Join(t.TempDir(), "admin-password")
+	if err := os.WriteFile(passwordFile, []byte("too short\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := Load(env(map[string]string{
+		EnvAuthMode:         AuthModeLogin,
+		EnvAuthUsername:     "avery",
+		EnvAuthPasswordFile: passwordFile,
+	}))
+	if err == nil {
+		t.Fatalf("Load() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), EnvAuthPasswordFile) {
+		t.Fatalf("Load() error = %v, want %s context", err, EnvAuthPasswordFile)
+	}
+}
+
 func TestLoadParsesAuthMode(t *testing.T) {
 	t.Parallel()
 
@@ -204,6 +285,7 @@ func TestLoadRejectsPartialAuthEnv(t *testing.T) {
 	for name, values := range map[string]map[string]string{
 		"username only defaults to basic": {EnvAuthUsername: "avery"},
 		"hash only defaults to basic":     {EnvAuthPasswordHash: testPasswordHash(t)},
+		"file only defaults to basic":     {EnvAuthPasswordFile: "/tmp/jobhunt-os-password"},
 		"login username only": {
 			EnvAuthMode:     AuthModeLogin,
 			EnvAuthUsername: "avery",
@@ -219,6 +301,10 @@ func TestLoadRejectsPartialAuthEnv(t *testing.T) {
 		"basic hash only": {
 			EnvAuthMode:         AuthModeBasic,
 			EnvAuthPasswordHash: testPasswordHash(t),
+		},
+		"basic file only": {
+			EnvAuthMode:         AuthModeBasic,
+			EnvAuthPasswordFile: "/tmp/jobhunt-os-password",
 		},
 	} {
 		name := name

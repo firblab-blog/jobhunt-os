@@ -11,6 +11,8 @@ secrets/
 *.sqlite-*
 /bin/
 /data/
+/deploy/data/
+/deploy/.secrets/
 /dist/
 /coverage.out
 /tmp/

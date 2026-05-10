@@ -20,7 +20,8 @@ docker compose up -d
 The Compose data-prep helper runs before the app container on first start and
 when Compose recreates it. It keeps `data/documents` and `data/tmp` present and
 sets `./data` ownership for the configured `JOBHUNT_UID`/`JOBHUNT_GID` values
-from `.env`, or the image's default non-root UID/GID if `.env` is not present.
+from `deploy/.env`, or the image's default non-root UID/GID if `.env` is not
+present.
 
 Check the container and logs:
 
@@ -39,20 +40,24 @@ New self-hosted and deployed installs should prefer:
 
 ```text
 JOBHUNT_AUTH_MODE=login
-JOBHUNT_AUTH_PASSWORD_HASH='argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>'
+JOBHUNT_AUTH_USERNAME=<username>
+JOBHUNT_AUTH_PASSWORD_FILE=/run/secrets/jobhunt_admin_password
 ```
 
-Existing PBKDF2-SHA256 password hashes remain supported for compatibility, so
-you do not need to rotate immediately just because the preferred hash format is
-now Argon2id. Rotate to a new Argon2id hash when convenient, when a password may
-have been exposed, or when access should be removed.
+Docker Compose installs mount the password file from the local ignored secret
+configured by `JOBHUNT_AUTH_PASSWORD_SECRET_FILE`; the default host path is
+`deploy/.secrets/admin-password`.
+
+Existing Argon2id and PBKDF2-SHA256 password hashes remain supported through
+`JOBHUNT_AUTH_PASSWORD_HASH` for compatibility, so you do not need to rotate
+immediately. Move to a password file when convenient, when a password may have
+been exposed, or when access should be removed.
 
 Loopback no-auth remains allowed for desktop/local use. Non-loopback no-auth is
 refused unless `JOBHUNT_ALLOW_INSECURE_NO_AUTH=true` is set alongside network
-binding. Deployed non-loopback instances, including firblab-v2/GitLab CI
-deployments, must use login auth. Use HTTPS and `JOBHUNT_SECURE_COOKIES=true`
-when access goes through a trusted reverse proxy; keep secure cookies off for
-direct plain-HTTP LAN deployments.
+binding. Deployed non-loopback instances must use login auth. Use HTTPS and
+`JOBHUNT_SECURE_COOKIES=true` when access goes through a trusted reverse proxy;
+keep secure cookies off for direct plain-HTTP LAN deployments.
 
 ## `latest` vs Pinned Tags
 
@@ -71,7 +76,7 @@ When versioned image tags are available, you can pin the image in
 ```yaml
 services:
   jobhunt-os:
-    image: ghcr.io/firblab-blog/jobhunt-os:v0.1.4
+    image: ghcr.io/firblab-blog/jobhunt-os:v0.1.9
 ```
 
 Pinned tags make upgrades more explicit: edit the tag, back up, pull, and run

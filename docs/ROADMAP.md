@@ -1,6 +1,6 @@
 # Roadmap
 
-## Current Scope in `v0.1.4`
+## Current Scope in `v0.1.9`
 
 - Application CRUD backed by SQLite.
 - Constrained application statuses, priorities, and timeline event types.

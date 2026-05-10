@@ -58,11 +58,10 @@ Synthetic fixtures should use the `sample-*.yaml` naming convention.
 - Do not commit local `.env` files, `.secrets/`, `secrets/`, `data/`, SQLite
   databases, uploaded documents, or private job hunt material.
 - Keep credentials, plaintext passwords, and real password hashes in local
-  environment files, host secret stores, Vault, or CI secret variables rather
-  than in source, Compose files, docs, screenshots, or logs.
-- Deployed non-loopback instances, including firblab-v2/GitLab CI deployments,
-  must use `JOBHUNT_AUTH_MODE=login`. Use HTTPS and
-  `JOBHUNT_SECURE_COOKIES=true` when access goes through a trusted reverse
+  ignored secret files, Docker secrets, host secret stores, Vault, or CI secret
+  variables rather than in source, Compose files, docs, screenshots, or logs.
+- Deployed non-loopback instances must use `JOBHUNT_AUTH_MODE=login`. Use HTTPS
+  and `JOBHUNT_SECURE_COOKIES=true` when access goes through a trusted reverse
   proxy; keep secure cookies off for direct plain-HTTP LAN access.
 - Redact names, email addresses, phone numbers, hostnames, tokens, private
   paths, and company-specific notes before sharing issue reports or support

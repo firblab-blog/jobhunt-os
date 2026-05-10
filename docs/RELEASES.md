@@ -17,7 +17,7 @@ Tags have these meanings:
 - `latest`: the newest versioned release image. This is the default in the
   provided Compose file so first-time installs can stay simple. It tracks the
   most recent `vX.Y.Z` release.
-- `vX.Y.Z`: a named release tag, for example `v0.1.4`. Use this when you want
+- `vX.Y.Z`: a named release tag, for example `v0.1.9`. Use this when you want
   explicit upgrades.
 - `sha-<shortsha>`: an image for a specific commit. Use this when you need an
   exact build for testing, rollback, or support.
@@ -34,7 +34,7 @@ The lightweight release process is:
 
 1. Merge the intended release state to `main`.
 2. Let CI publish a `sha-<shortsha>` image for that commit.
-3. Create and push an annotated Git tag such as `v0.1.4`.
+3. Create and push an annotated Git tag such as `v0.1.9`.
 4. Let CI publish the matching `vX.Y.Z`, `latest`, and `sha-<shortsha>` images.
 5. Let CI generate the image SBOM and container scan report.
 6. Let CI mirror the Git tag to GitHub and create the matching GitHub Release.
@@ -62,13 +62,13 @@ until any exception is documented in the release notes.
 - Docs review: check `README.md`, install, upgrade, backup/restore, reverse
   proxy, security, and release notes for changes users need before upgrading or
   exposing the app on a network.
-- Auth review: for deployed non-loopback release candidates, including
-  firblab-v2/GitLab CI deployments, confirm the runtime uses
-  `JOBHUNT_AUTH_MODE=login` and secret storage for plaintext passwords and real
-  password hashes. For trusted HTTPS reverse-proxy access, also confirm
+- Auth review: for deployed non-loopback release candidates, confirm the runtime
+  uses `JOBHUNT_AUTH_MODE=login` and secret storage for plaintext passwords or
+  real password hashes. For trusted HTTPS reverse-proxy access, also confirm
   `JOBHUNT_SECURE_COOKIES=true`; for direct plain-HTTP LAN access, keep secure
   cookies off so login sessions work. Existing PBKDF2-SHA256 hashes are
-  legacy-compatible, but Argon2id is preferred for new hashes.
+  legacy-compatible, but password-file configuration is preferred for new
+  Compose installs.
 
 ## What To Pin
 
@@ -86,7 +86,7 @@ For production-ish self-hosted installs, pin a versioned image tag instead:
 ```yaml
 services:
   jobhunt-os:
-    image: ghcr.io/firblab-blog/jobhunt-os:v0.1.4
+    image: ghcr.io/firblab-blog/jobhunt-os:v0.1.9
 ```
 
 This makes upgrades deliberate: back up `./data`, edit the tag, pull the image,
@@ -120,11 +120,11 @@ the image has a fixed critical vulnerability.
 To scan a pulled release image locally:
 
 ```sh
-trivy image ghcr.io/firblab-blog/jobhunt-os:v0.1.4
+trivy image ghcr.io/firblab-blog/jobhunt-os:v0.1.9
 ```
 
 To generate a local CycloneDX SBOM:
 
 ```sh
-trivy image --format cyclonedx --output jobhunt-os.cdx.json ghcr.io/firblab-blog/jobhunt-os:v0.1.4
+trivy image --format cyclonedx --output jobhunt-os.cdx.json ghcr.io/firblab-blog/jobhunt-os:v0.1.9
 ```

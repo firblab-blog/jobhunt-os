@@ -20,6 +20,7 @@ const (
 	EnvAuthMode               = "JOBHUNT_AUTH_MODE"
 	EnvAuthUsername           = "JOBHUNT_AUTH_USERNAME"
 	EnvAuthPasswordHash       = "JOBHUNT_AUTH_PASSWORD_HASH"
+	EnvAuthPasswordFile       = "JOBHUNT_AUTH_PASSWORD_FILE"
 	EnvAllowInsecureNoAuth    = "JOBHUNT_ALLOW_INSECURE_NO_AUTH"
 	EnvSessionIdleTimeout     = "JOBHUNT_SESSION_IDLE_TIMEOUT"
 	EnvSessionAbsoluteTimeout = "JOBHUNT_SESSION_ABSOLUTE_TIMEOUT"
@@ -70,11 +71,16 @@ func Load(getenv func(string) string) (Config, error) {
 }
 
 type loadOptions struct {
-	goos    string
-	homeDir string
+	goos     string
+	homeDir  string
+	readFile func(string) ([]byte, error)
 }
 
 func load(getenv func(string) string, opts loadOptions) (Config, error) {
+	if opts.readFile == nil {
+		opts.readFile = os.ReadFile
+	}
+
 	dataDir, err := dataDir(getenv, opts.goos, opts.homeDir)
 	if err != nil {
 		return Config{}, err
@@ -119,13 +125,19 @@ func load(getenv func(string) string, opts loadOptions) (Config, error) {
 
 	authUsername := strings.TrimSpace(getenv(EnvAuthUsername))
 	authPasswordHash := strings.TrimSpace(getenv(EnvAuthPasswordHash))
-	authMode, err := parseAuthMode(getenv, authUsername, authPasswordHash)
+	authPasswordFile := strings.TrimSpace(getenv(EnvAuthPasswordFile))
+	authMode, err := parseAuthMode(getenv, authUsername, authPasswordHash, authPasswordFile)
 	if err != nil {
 		return Config{}, err
 	}
 	cfg.AuthMode = authMode
 
-	if err := validateAuthConfig(cfg.AuthMode, cfg.Addr, cfg.AllowInsecureNoAuth, authUsername, authPasswordHash); err != nil {
+	authPasswordHash, err = resolveAuthPasswordHash(cfg.AuthMode, authPasswordHash, authPasswordFile, opts.readFile)
+	if err != nil {
+		return Config{}, err
+	}
+
+	if err := validateAuthConfig(cfg.AuthMode, cfg.Addr, cfg.AllowInsecureNoAuth, authUsername, authPasswordHash, authPasswordFile); err != nil {
 		return Config{}, err
 	}
 	if cfg.AuthMode != AuthModeDisabled {
@@ -176,10 +188,10 @@ func parseDuration(value string) (time.Duration, error) {
 	return time.ParseDuration(value)
 }
 
-func parseAuthMode(getenv func(string) string, authUsername string, authPasswordHash string) (string, error) {
+func parseAuthMode(getenv func(string) string, authUsername string, authPasswordHash string, authPasswordFile string) (string, error) {
 	authMode := strings.TrimSpace(strings.ToLower(getenv(EnvAuthMode)))
 	if authMode == "" {
-		if authUsername != "" || authPasswordHash != "" {
+		if authUsername != "" || authPasswordHash != "" || authPasswordFile != "" {
 			return AuthModeBasic, nil
 		}
 		return AuthModeDisabled, nil
@@ -193,11 +205,31 @@ func parseAuthMode(getenv func(string) string, authUsername string, authPassword
 	}
 }
 
-func validateAuthConfig(authMode string, addr string, allowInsecureNoAuth bool, authUsername string, authPasswordHash string) error {
+func resolveAuthPasswordHash(authMode string, authPasswordHash string, authPasswordFile string, readFile func(string) ([]byte, error)) (string, error) {
+	if authPasswordHash != "" && authPasswordFile != "" {
+		return "", fmt.Errorf("%s and %s are mutually exclusive", EnvAuthPasswordHash, EnvAuthPasswordFile)
+	}
+	if authPasswordFile == "" || authMode == AuthModeDisabled {
+		return authPasswordHash, nil
+	}
+
+	passwordBytes, err := readFile(authPasswordFile)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", EnvAuthPasswordFile, err)
+	}
+	password := strings.TrimSuffix(strings.TrimSuffix(string(passwordBytes), "\n"), "\r")
+	passwordHash, err := auth.HashPassword(password)
+	if err != nil {
+		return "", fmt.Errorf("%s must contain a valid login password: %w", EnvAuthPasswordFile, err)
+	}
+	return passwordHash, nil
+}
+
+func validateAuthConfig(authMode string, addr string, allowInsecureNoAuth bool, authUsername string, authPasswordHash string, authPasswordFile string) error {
 	switch authMode {
 	case AuthModeDisabled:
-		if authUsername != "" || authPasswordHash != "" {
-			return fmt.Errorf("%s and %s must be empty when %s=%s", EnvAuthUsername, EnvAuthPasswordHash, EnvAuthMode, AuthModeDisabled)
+		if authUsername != "" || authPasswordHash != "" || authPasswordFile != "" {
+			return fmt.Errorf("%s, %s, and %s must be empty when %s=%s", EnvAuthUsername, EnvAuthPasswordHash, EnvAuthPasswordFile, EnvAuthMode, AuthModeDisabled)
 		}
 		if !allowInsecureNoAuth && !isLoopbackAddr(addr) {
 			return fmt.Errorf("%s=%s is refused for non-loopback %s=%q; set %s=true only if this deployment is protected elsewhere", EnvAuthMode, AuthModeDisabled, EnvAddr, addr, EnvAllowInsecureNoAuth)
@@ -208,7 +240,7 @@ func validateAuthConfig(authMode string, addr string, allowInsecureNoAuth bool, 
 			return fmt.Errorf("%s is required when %s=%s", EnvAuthUsername, EnvAuthMode, authMode)
 		}
 		if authPasswordHash == "" {
-			return fmt.Errorf("%s is required when %s=%s", EnvAuthPasswordHash, EnvAuthMode, authMode)
+			return fmt.Errorf("%s or %s is required when %s=%s", EnvAuthPasswordHash, EnvAuthPasswordFile, EnvAuthMode, authMode)
 		}
 		if _, err := auth.ParsePasswordHash(authPasswordHash); err != nil {
 			return fmt.Errorf("%s must be a supported password hash: %w", EnvAuthPasswordHash, err)

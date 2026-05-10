@@ -6,25 +6,18 @@ private career data to a SaaS platform.
 
 ## Install with Docker Compose
 
-Docker Compose is the recommended install path for end users.
-
-The Compose container listens on its container network interface, so the
-provided Compose file requires built-in login auth. Create a local `.env` with
-`JOBHUNT_AUTH_USERNAME` and `JOBHUNT_AUTH_PASSWORD_HASH` before first start.
-See [Configuration](docs/CONFIGURATION.md) for the Argon2id password hash
-command.
-
-```text
-JOBHUNT_AUTH_MODE=login
-JOBHUNT_AUTH_USERNAME=<username>
-JOBHUNT_AUTH_PASSWORD_HASH='argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>'
-```
+Docker Compose is the recommended install path for end users. Clone the
+repository, add local configuration, add a local admin password file, and start
+the app from `deploy/`.
 
 ```sh
-mkdir jobhunt-os
-cd jobhunt-os
-curl -O https://raw.githubusercontent.com/firblab-blog/jobhunt-os/main/deploy/docker-compose.yml
+git clone https://github.com/firblab-blog/jobhunt-os.git
+cd jobhunt-os/deploy
+cp .env.example .env
+mkdir -p .secrets
 $EDITOR .env
+$EDITOR .secrets/admin-password
+chmod 600 .env .secrets/admin-password
 docker compose up -d
 ```
 
@@ -34,10 +27,11 @@ Then open:
 http://127.0.0.1:8080
 ```
 
-The default Compose file stores JobHunt OS data in `./data` next to
-`docker-compose.yml`. Back up `./data` before upgrades and before putting
-important job hunt data in the app. The backup guide keeps the default flow
-simple and includes optional encrypted storage examples.
+Use a long password or passphrase in `.secrets/admin-password`; the app reads it
+as a Docker secret and hashes it in memory at startup. The default Compose file
+stores JobHunt OS data in `deploy/data`. Back up `deploy/data` before upgrades
+and before putting important job hunt data in the app. The backup guide keeps
+the default flow simple and includes optional encrypted storage examples.
 
 Upgrade a Compose install from the directory that contains `docker-compose.yml`:
 
@@ -66,15 +60,15 @@ The provided Compose file uses `latest`, which tracks the newest versioned
 release. Pin a versioned or commit tag in `docker-compose.yml` when you want
 more explicit upgrades.
 
-For the `v0.1.4` release line:
+For the `v0.1.9` release line:
 
 ```text
-ghcr.io/firblab-blog/jobhunt-os:v0.1.4
+ghcr.io/firblab-blog/jobhunt-os:v0.1.9
 ```
 
 ## Data Directory
 
-The Compose file prepares this host-side layout:
+From the `deploy/` directory, the Compose file prepares this host-side layout:
 
 ```text
 data/
@@ -83,17 +77,18 @@ data/
   tmp/
 ```
 
-On Linux, you can make new files in `./data` owned by your host user by creating
-a `.env` file before first start or adding these lines to the auth `.env`:
+On Linux, you can make new files in `./data` owned by your host user by setting
+these values in `deploy/.env` before first start:
 
-```sh
-printf "JOBHUNT_UID=%s\nJOBHUNT_GID=%s\n" "$(id -u)" "$(id -g)" >> .env
+```text
+JOBHUNT_UID=<host-uid>
+JOBHUNT_GID=<host-gid>
 ```
 
 If you skip this, the install still starts with the image's non-root UID/GID.
-You can add `.env` later and run `docker compose up -d` again; the data-prep
-helper will be recreated if the Compose configuration changes and will repair
-ownership for the configured UID/GID.
+You can update `deploy/.env` later and run `docker compose up -d` again; the
+data-prep helper will be recreated if the Compose configuration changes and
+will repair ownership for the configured UID/GID.
 
 ## Self-Hosting Docs
 
@@ -139,7 +134,7 @@ go test ./...
 
 ## Current Capabilities
 
-As of `v0.1.4`, JobHunt OS includes:
+As of `v0.1.9`, JobHunt OS includes:
 
 - Dashboard with an application pipeline Sankey and signal strip
 - Applications page with next actions, search, status filtering, and a Sankey

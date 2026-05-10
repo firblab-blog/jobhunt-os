@@ -13,7 +13,7 @@ services:
 
   jobhunt-os:
     # Keep latest for the lowest-friction install path. For deliberate
-    # upgrades, replace this with a version tag such as :v0.1.4.
+    # upgrades, replace this with a version tag such as :v0.1.9.
     image: ghcr.io/firblab-blog/jobhunt-os:latest
     user: "${JOBHUNT_UID:-65532}:${JOBHUNT_GID:-65532}"
     restart: unless-stopped
@@ -21,17 +21,23 @@ services:
       jobhunt-os-init:
         condition: service_completed_successfully
     ports:
-      - "127.0.0.1:8080:8080"
+      - "${JOBHUNT_PUBLIC_BIND:-127.0.0.1}:${JOBHUNT_PUBLIC_PORT:-8080}:8080"
     environment:
       JOBHUNT_ADDR: 0.0.0.0:8080
       JOBHUNT_ALLOW_NETWORK: "true"
       JOBHUNT_DATA_DIR: /data
       JOBHUNT_AUTH_MODE: "${JOBHUNT_AUTH_MODE:-login}"
-      JOBHUNT_AUTH_USERNAME: "${JOBHUNT_AUTH_USERNAME:?set JOBHUNT_AUTH_USERNAME in .env}"
-      JOBHUNT_AUTH_PASSWORD_HASH: "${JOBHUNT_AUTH_PASSWORD_HASH:?set JOBHUNT_AUTH_PASSWORD_HASH in .env}"
+      JOBHUNT_AUTH_USERNAME: "${JOBHUNT_AUTH_USERNAME:?set JOBHUNT_AUTH_USERNAME in deploy/.env}"
+      JOBHUNT_AUTH_PASSWORD_FILE: "${JOBHUNT_AUTH_PASSWORD_FILE:-/run/secrets/jobhunt_admin_password}"
       JOBHUNT_SECURE_COOKIES: "${JOBHUNT_SECURE_COOKIES:-false}"
       JOBHUNT_AUTH_TRUST_PROXY_HEADERS: "${JOBHUNT_AUTH_TRUST_PROXY_HEADERS:-false}"
       JOBHUNT_SESSION_IDLE_TIMEOUT: "${JOBHUNT_SESSION_IDLE_TIMEOUT:-12h}"
       JOBHUNT_SESSION_ABSOLUTE_TIMEOUT: "${JOBHUNT_SESSION_ABSOLUTE_TIMEOUT:-30d}"
     volumes:
       - ./data:/data
+    secrets:
+      - jobhunt_admin_password
+
+secrets:
+  jobhunt_admin_password:
+    file: "${JOBHUNT_AUTH_PASSWORD_SECRET_FILE:-./.secrets/admin-password}"
