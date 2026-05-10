@@ -15,18 +15,22 @@ import (
 	"io/fs"
 	"log/slog"
 	"mime/multipart"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	jobhuntos "github.com/firblab-blog/jobhunt-os"
 	"github.com/firblab-blog/jobhunt-os/internal/auth"
 	"github.com/firblab-blog/jobhunt-os/internal/model"
+	"github.com/firblab-blog/jobhunt-os/internal/session"
 	"github.com/firblab-blog/jobhunt-os/internal/store"
 )
 
@@ -39,6 +43,13 @@ const (
 	themeSystem                    = "system"
 	themeLight                     = "light"
 	themeDark                      = "dark"
+	authModeDisabled               = "disabled"
+	authModeLogin                  = "login"
+	authModeBasic                  = "basic"
+	sessionCookieName              = "jobhunt_session"
+	hostSessionCookieName          = "__Host-jobhunt_session"
+	loginErrorMessage              = "Invalid username or password."
+	noStoreCacheControl            = "no-store"
 	appCSP                         = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'self'; frame-ancestors 'none'; form-action 'self'"
 	documentPreviewCSP             = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'self'"
 	documentDownloadCSP            = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'"
@@ -50,18 +61,26 @@ type Server struct {
 	store         store.ApplicationStore
 	dataDir       string
 	auth          *basicAuth
+	loginAuth     *loginAuth
+	loginLimiter  *loginAttemptLimiter
+	sessionStore  session.Store
 	secureCookies bool
+	trustProxy    bool
+	now           func() time.Time
 }
 
 const closedApplicationStatusFilter = "closed"
 
 type Options struct {
-	DataDir       string
-	Auth          AuthOptions
-	SecureCookies bool
+	DataDir               string
+	Auth                  AuthOptions
+	SessionStore          session.Store
+	SecureCookies         bool
+	AuthTrustProxyHeaders bool
 }
 
 type AuthOptions struct {
+	Mode         string
 	Username     string
 	PasswordHash string
 }
@@ -69,6 +88,46 @@ type AuthOptions struct {
 type basicAuth struct {
 	username string
 	hash     auth.PasswordHash
+}
+
+type loginAuth struct {
+	username string
+	hash     auth.PasswordHash
+}
+
+type loginThrottlePolicy struct {
+	freeFailures    int
+	lockFailures    int
+	lockoutDuration time.Duration
+	maxThrottle     time.Duration
+}
+
+type loginAttemptLimiter struct {
+	mu      sync.Mutex
+	policy  loginThrottlePolicy
+	buckets map[string]loginAttemptBucket
+}
+
+type loginAttemptBucket struct {
+	failures      int
+	throttleUntil time.Time
+	lockedUntil   time.Time
+	lastSeen      time.Time
+}
+
+type loginAttemptStatus struct {
+	Throttled bool
+	Locked    bool
+}
+
+type sessionContextKey struct{}
+
+type loginData struct {
+	Theme     pageTheme
+	CSRFToken template.HTML
+	Next      string
+	Error     string
+	Username  string
 }
 
 type dashboardData struct {
@@ -461,14 +520,31 @@ func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler 
 		templates:     templates,
 		store:         appStore,
 		dataDir:       strings.TrimSpace(opts.DataDir),
+		sessionStore:  opts.SessionStore,
 		secureCookies: opts.SecureCookies,
+		trustProxy:    opts.AuthTrustProxyHeaders,
+		now:           time.Now,
 	}
-	if strings.TrimSpace(opts.Auth.Username) != "" || strings.TrimSpace(opts.Auth.PasswordHash) != "" {
+	switch authMode(opts.Auth) {
+	case authModeDisabled:
+	case authModeLogin:
+		authenticator, err := newLoginAuth(opts.Auth)
+		if err != nil {
+			panic(err)
+		}
+		if s.sessionStore == nil {
+			panic("login auth requires a session store")
+		}
+		s.loginAuth = authenticator
+		s.loginLimiter = newLoginAttemptLimiter(defaultLoginThrottlePolicy())
+	case authModeBasic:
 		authenticator, err := newBasicAuth(opts.Auth)
 		if err != nil {
 			panic(err)
 		}
 		s.auth = authenticator
+	default:
+		panic("unsupported auth mode")
 	}
 
 	staticFiles, err := fs.Sub(jobhuntos.Assets, "web/static")
@@ -478,6 +554,9 @@ func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler 
 
 	s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles))))
 	s.mux.HandleFunc("GET /healthz", s.healthz)
+	s.mux.HandleFunc("GET /login", s.loginGet)
+	s.mux.HandleFunc("POST /login", s.loginPost)
+	s.mux.HandleFunc("POST /logout", s.logoutPost)
 	s.mux.HandleFunc("GET /theme", s.themeUpdate)
 	s.mux.HandleFunc("GET /{$}", s.home)
 	s.mux.HandleFunc("GET /applications", s.applicationsIndex)
@@ -520,8 +599,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	start := time.Now()
 
-	if s.requiresAuth(r) && !s.auth.authorize(r) {
+	if s.requiresBasicAuth(r) && !s.auth.authorize(r) {
 		requireBasicAuth(rec)
+	} else if s.requiresLoginAuth(r) {
+		authorized, authorizedRequest := s.authorizeSession(r)
+		if !authorized {
+			s.requireLogin(rec, r)
+		} else {
+			s.mux.ServeHTTP(rec, authorizedRequest)
+		}
 	} else {
 		s.mux.ServeHTTP(rec, r)
 	}
@@ -532,6 +618,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"status", rec.status,
 		"duration", time.Since(start),
 	)
+}
+
+func authMode(opts AuthOptions) string {
+	mode := strings.TrimSpace(strings.ToLower(opts.Mode))
+	if mode != "" {
+		return mode
+	}
+	if strings.TrimSpace(opts.Username) != "" || strings.TrimSpace(opts.PasswordHash) != "" {
+		return authModeBasic
+	}
+	return authModeDisabled
 }
 
 func newBasicAuth(opts AuthOptions) (*basicAuth, error) {
@@ -547,8 +644,37 @@ func newBasicAuth(opts AuthOptions) (*basicAuth, error) {
 	return &basicAuth{username: username, hash: hash}, nil
 }
 
-func (s *Server) requiresAuth(r *http.Request) bool {
+func newLoginAuth(opts AuthOptions) (*loginAuth, error) {
+	username := strings.TrimSpace(opts.Username)
+	passwordHash := strings.TrimSpace(opts.PasswordHash)
+	if username == "" || passwordHash == "" {
+		return nil, errors.New("auth username and password hash are both required")
+	}
+	hash, err := auth.ParsePasswordHash(passwordHash)
+	if err != nil {
+		return nil, err
+	}
+	return &loginAuth{username: username, hash: hash}, nil
+}
+
+func (s *Server) requiresBasicAuth(r *http.Request) bool {
 	return s.auth != nil && r.URL.Path != "/healthz"
+}
+
+func (s *Server) requiresLoginAuth(r *http.Request) bool {
+	if s.loginAuth == nil {
+		return false
+	}
+	switch {
+	case r.URL.Path == "/healthz":
+		return false
+	case r.URL.Path == "/login":
+		return false
+	case strings.HasPrefix(r.URL.Path, "/static/"):
+		return false
+	default:
+		return true
+	}
 }
 
 func (a *basicAuth) authorize(r *http.Request) bool {
@@ -565,6 +691,149 @@ func (a *basicAuth) authorize(r *http.Request) bool {
 	return usernameOK&passwordOK == 1
 }
 
+func (a *loginAuth) authorize(username, password string) bool {
+	usernameOK := constantTimeStringEqual(strings.TrimSpace(username), a.username)
+	passwordOK := 0
+	if a.hash.Verify(password) {
+		passwordOK = 1
+	}
+	return usernameOK&passwordOK == 1
+}
+
+func defaultLoginThrottlePolicy() loginThrottlePolicy {
+	return loginThrottlePolicy{
+		freeFailures:    5,
+		lockFailures:    10,
+		lockoutDuration: 15 * time.Minute,
+		maxThrottle:     30 * time.Second,
+	}
+}
+
+func newLoginAttemptLimiter(policy loginThrottlePolicy) *loginAttemptLimiter {
+	if policy.freeFailures <= 0 {
+		policy.freeFailures = 5
+	}
+	if policy.lockFailures <= policy.freeFailures {
+		policy.lockFailures = policy.freeFailures + 5
+	}
+	if policy.lockoutDuration <= 0 {
+		policy.lockoutDuration = 15 * time.Minute
+	}
+	if policy.maxThrottle <= 0 {
+		policy.maxThrottle = 30 * time.Second
+	}
+	return &loginAttemptLimiter{
+		policy:  policy,
+		buckets: make(map[string]loginAttemptBucket),
+	}
+}
+
+func (l *loginAttemptLimiter) Check(now time.Time, username string, client string) loginAttemptStatus {
+	if l == nil {
+		return loginAttemptStatus{}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var status loginAttemptStatus
+	for _, key := range loginAttemptKeys(username, client) {
+		bucket, ok := l.buckets[key]
+		if !ok {
+			continue
+		}
+		bucket = l.expireBucket(now, bucket)
+		if bucket.failures == 0 {
+			delete(l.buckets, key)
+			continue
+		}
+		l.buckets[key] = bucket
+		status = status.merge(bucket.status(now))
+	}
+	return status
+}
+
+func (l *loginAttemptLimiter) RecordFailure(now time.Time, username string, client string) loginAttemptStatus {
+	if l == nil {
+		return loginAttemptStatus{}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var status loginAttemptStatus
+	for _, key := range loginAttemptKeys(username, client) {
+		bucket := l.expireBucket(now, l.buckets[key])
+		bucket.failures++
+		bucket.lastSeen = now
+		if bucket.failures >= l.policy.lockFailures {
+			if !bucket.lockedUntil.After(now) {
+				bucket.lockedUntil = now.Add(l.policy.lockoutDuration)
+			}
+			bucket.throttleUntil = time.Time{}
+		} else if bucket.failures > l.policy.freeFailures {
+			delay := time.Duration(bucket.failures-l.policy.freeFailures) * time.Second
+			if delay > l.policy.maxThrottle {
+				delay = l.policy.maxThrottle
+			}
+			until := now.Add(delay)
+			if until.After(bucket.throttleUntil) {
+				bucket.throttleUntil = until
+			}
+		}
+		l.buckets[key] = bucket
+		status = status.merge(bucket.status(now))
+	}
+	return status
+}
+
+func (l *loginAttemptLimiter) RecordSuccess(username string, client string) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	for _, key := range loginAttemptKeys(username, client) {
+		delete(l.buckets, key)
+	}
+}
+
+func (l *loginAttemptLimiter) expireBucket(now time.Time, bucket loginAttemptBucket) loginAttemptBucket {
+	if bucket.lockedUntil.IsZero() || bucket.lockedUntil.After(now) {
+		return bucket
+	}
+	return loginAttemptBucket{}
+}
+
+func (b loginAttemptBucket) status(now time.Time) loginAttemptStatus {
+	return loginAttemptStatus{
+		Throttled: b.throttleUntil.After(now),
+		Locked:    b.lockedUntil.After(now),
+	}
+}
+
+func (s loginAttemptStatus) merge(other loginAttemptStatus) loginAttemptStatus {
+	return loginAttemptStatus{
+		Throttled: s.Throttled || other.Throttled,
+		Locked:    s.Locked || other.Locked,
+	}
+}
+
+func loginAttemptKeys(username string, client string) []string {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		normalizedUsername = "<empty>"
+	}
+	normalizedClient := strings.TrimSpace(client)
+	if normalizedClient == "" {
+		normalizedClient = "<unknown>"
+	}
+	return []string{
+		"username:" + normalizedUsername,
+		"client:" + normalizedClient,
+		"pair:" + normalizedUsername + "\x00" + normalizedClient,
+	}
+}
+
 func constantTimeStringEqual(a, b string) int {
 	aHash := sha256.Sum256([]byte(a))
 	bHash := sha256.Sum256([]byte(b))
@@ -572,14 +841,290 @@ func constantTimeStringEqual(a, b string) int {
 }
 
 func requireBasicAuth(w http.ResponseWriter) {
+	setNoStore(w.Header())
 	w.Header().Set("WWW-Authenticate", `Basic realm="JobHunt OS", charset="UTF-8"`)
 	http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+}
+
+func (s *Server) authorizeSession(r *http.Request) (bool, *http.Request) {
+	cookie, ok := s.requestSessionCookie(r)
+	if !ok {
+		return false, r
+	}
+	found, err := s.sessionStore.TouchSession(r.Context(), cookie.Value)
+	if err != nil {
+		if !errors.Is(err, session.ErrNotFound) {
+			slog.Error("authorize session", "error", err)
+		}
+		return false, r
+	}
+	ctx := context.WithValue(r.Context(), sessionContextKey{}, found)
+	return true, r.WithContext(ctx)
+}
+
+func (s *Server) requireLogin(w http.ResponseWriter, r *http.Request) {
+	setNoStore(w.Header())
+	if acceptsBrowserRedirect(r) {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(loginNextPath(r)), http.StatusSeeOther)
+		return
+	}
+	http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+}
+
+func acceptsBrowserRedirect(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	accept := strings.TrimSpace(r.Header.Get("Accept"))
+	return accept == "" || strings.Contains(accept, "text/html") || strings.Contains(accept, "*/*")
+}
+
+func loginNextPath(r *http.Request) string {
+	if r.URL.RawQuery == "" {
+		return r.URL.EscapedPath()
+	}
+	return r.URL.EscapedPath() + "?" + r.URL.RawQuery
+}
+
+func (s *Server) requestSessionCookie(r *http.Request) (*http.Cookie, bool) {
+	for _, name := range sessionCookieNames(s.secureCookies) {
+		cookie, err := r.Cookie(name)
+		if err == nil && strings.TrimSpace(cookie.Value) != "" {
+			return cookie, true
+		}
+	}
+	return nil, false
+}
+
+func sessionCookieNames(secure bool) []string {
+	if secure {
+		return []string{hostSessionCookieName, sessionCookieName}
+	}
+	return []string{sessionCookieName, hostSessionCookieName}
+}
+
+func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
+	name := sessionCookieName
+	if s.secureCookies {
+		name = hostSessionCookieName
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   s.secureCookies,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (s *Server) clearSessionCookies(w http.ResponseWriter) {
+	for _, name := range []string{sessionCookieName, hostSessionCookieName} {
+		http.SetCookie(w, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			Expires:  time.Unix(0, 0),
+			HttpOnly: true,
+			Secure:   s.secureCookies || name == hostSessionCookieName,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
 }
 
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
+}
+
+func (s *Server) loginGet(w http.ResponseWriter, r *http.Request) {
+	setNoStore(w.Header())
+	next := safeLoginNextTarget(r, r.URL.Query().Get("next"))
+	if s.loginAuth != nil {
+		if authorized, _ := s.authorizeSession(r); authorized {
+			http.Redirect(w, r, loginRedirectTarget(next), http.StatusSeeOther)
+			return
+		}
+	}
+	s.renderLogin(w, r, loginData{Next: next})
+}
+
+func (s *Server) loginPost(w http.ResponseWriter, r *http.Request) {
+	setNoStore(w.Header())
+	if err := parseLoginForm(w, r); err != nil {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	next := safeLoginNextTarget(r, r.PostForm.Get("next"))
+	if err := verifyCSRF(r, time.Now()); err != nil {
+		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
+		return
+	}
+
+	username := strings.TrimSpace(r.PostForm.Get("username"))
+	password := r.PostForm.Get("password")
+	client := clientIdentity(r, s.trustProxy)
+	now := s.now()
+	if status := s.loginLimiter.Check(now, username, client); status.Throttled || status.Locked {
+		status = s.loginLimiter.RecordFailure(now, username, client)
+		s.logFailedLogin(username, client, status)
+		s.renderLogin(w, r, loginData{
+			Next:     next,
+			Error:    loginErrorMessage,
+			Username: username,
+		})
+		return
+	}
+	if s.loginAuth == nil || !s.loginAuth.authorize(username, password) {
+		status := s.loginLimiter.RecordFailure(now, username, client)
+		s.logFailedLogin(username, client, status)
+		s.renderLogin(w, r, loginData{
+			Next:     next,
+			Error:    loginErrorMessage,
+			Username: username,
+		})
+		return
+	}
+	s.loginLimiter.RecordSuccess(username, client)
+
+	_, token, err := s.sessionStore.CreateSession(r.Context(), session.Metadata{
+		UserAgent:      r.UserAgent(),
+		ClientIPPrefix: client,
+	})
+	if err != nil {
+		serverError(w, r, err)
+		return
+	}
+
+	s.setSessionCookie(w, token)
+	http.Redirect(w, r, loginRedirectTarget(next), http.StatusSeeOther)
+}
+
+func (s *Server) logFailedLogin(username string, client string, status loginAttemptStatus) {
+	slog.Warn("login failed",
+		"username", strings.TrimSpace(username),
+		"client", client,
+		"throttled", status.Throttled,
+		"locked", status.Locked,
+	)
+}
+
+func (s *Server) logoutPost(w http.ResponseWriter, r *http.Request) {
+	setNoStore(w.Header())
+	if err := parseLoginForm(w, r); err != nil {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	if err := verifyCSRF(r, time.Now()); err != nil {
+		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
+		return
+	}
+
+	if found, ok := currentSession(r); ok {
+		if err := s.sessionStore.RevokeSession(r.Context(), found.ID); err != nil && !errors.Is(err, session.ErrNotFound) {
+			serverError(w, r, err)
+			return
+		}
+	}
+	s.clearSessionCookies(w)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func parseLoginForm(w http.ResponseWriter, r *http.Request) error {
+	r.Body = http.MaxBytesReader(w, r.Body, defaultMaxFormBytes)
+	if err := r.ParseForm(); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return errFormTooLarge
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, data loginData) {
+	token, err := issueCSRFToken(w, time.Now(), s.secureCookies)
+	if err != nil {
+		serverError(w, r, err)
+		return
+	}
+	data.CSRFToken = csrfField(token)
+	s.renderWithStatus(w, r, "login.html", data, http.StatusOK)
+}
+
+func currentSession(r *http.Request) (session.Session, bool) {
+	found, ok := r.Context().Value(sessionContextKey{}).(session.Session)
+	return found, ok
+}
+
+func loginRedirectTarget(next string) string {
+	if next == "" {
+		return "/"
+	}
+	return next
+}
+
+func safeLoginNextTarget(r *http.Request, candidate string) string {
+	target := safeRedirectTarget(r, candidate)
+	switch target {
+	case "", "/login", "/logout", "/healthz", "/theme":
+		return ""
+	default:
+		if strings.HasPrefix(target, "/static/") {
+			return ""
+		}
+		return target
+	}
+}
+
+func clientIdentity(r *http.Request, trustProxy bool) string {
+	remote := normalizeRemoteAddr(r.RemoteAddr)
+	if !trustProxy {
+		return remote
+	}
+	if forwarded := firstForwardedClientIP(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+		return forwarded
+	}
+	if realIP := headerClientIP(r.Header.Get("X-Real-IP")); realIP != "" {
+		return realIP
+	}
+	return remote
+}
+
+func firstForwardedClientIP(value string) string {
+	first, _, _ := strings.Cut(value, ",")
+	return headerClientIP(first)
+}
+
+func headerClientIP(value string) string {
+	candidate := strings.TrimSpace(value)
+	candidate = strings.Trim(candidate, `"'`)
+	candidate = strings.TrimPrefix(strings.TrimSuffix(candidate, "]"), "[")
+	if candidate == "" {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(candidate); err == nil {
+		candidate = host
+	}
+	addr, err := netip.ParseAddr(candidate)
+	if err != nil {
+		return ""
+	}
+	return addr.String()
+}
+
+func normalizeRemoteAddr(value string) string {
+	candidate := strings.TrimSpace(value)
+	if host, _, err := net.SplitHostPort(candidate); err == nil {
+		candidate = host
+	}
+	candidate = strings.TrimPrefix(strings.TrimSuffix(candidate, "]"), "[")
+	if addr, err := netip.ParseAddr(candidate); err == nil {
+		return addr.String()
+	}
+	return candidate
 }
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
@@ -1692,7 +2237,7 @@ func (s *Server) documentsDownload(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", disposition+`; filename="`+downloadFileName(document.Name)+`.pdf"`)
-	w.Header().Set("Cache-Control", "no-store")
+	setNoStore(w.Header())
 	w.Header().Set("Content-Security-Policy", documentCSP)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", frameOptions)
@@ -1776,7 +2321,7 @@ func (s *Server) exportJSON(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="jobhunt-os-export.json"`)
-	w.Header().Set("Cache-Control", "no-store")
+	setNoStore(w.Header())
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(snapshot); err != nil {
@@ -2187,6 +2732,7 @@ func (s *Server) renderWithStatus(w http.ResponseWriter, r *http.Request, name s
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	setNoStore(w.Header())
 	w.WriteHeader(status)
 	_, _ = w.Write(body.Bytes())
 }
@@ -3112,6 +3658,10 @@ func setSecurityHeaders(h http.Header) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "same-origin")
+}
+
+func setNoStore(h http.Header) {
+	h.Set("Cache-Control", noStoreCacheControl)
 }
 
 func serverError(w http.ResponseWriter, r *http.Request, err error) {

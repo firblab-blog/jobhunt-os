@@ -35,6 +35,9 @@ func TestCSRFTokenGenerationAndValidation(t *testing.T) {
 	if cookie.Value != token {
 		t.Fatalf("cookie token does not match issued token")
 	}
+	if cookie.Path != "/" {
+		t.Fatalf("cookie Path = %q, want /", cookie.Path)
+	}
 	if !cookie.HttpOnly {
 		t.Fatalf("cookie HttpOnly = false, want true")
 	}

@@ -39,12 +39,13 @@ Use the smallest exposure that fits the install.
 - Private LAN: use from trusted devices on a home or private network. Set
   `JOBHUNT_ALLOW_NETWORK=true` only when the LAN is trusted, use VPN or another
   trusted channel when practical, and assume anyone on that network may try the
-  HTTP port. Built-in HTTP Basic auth does not protect credentials from passive
+  HTTP port. Built-in auth does not protect credentials from passive
   observers on plain HTTP networks.
 - Internet behind authenticated reverse proxy: remote access through a public
   hostname. Keep JobHunt OS bound to `127.0.0.1`, expose only the reverse
-  proxy, require authentication at the app or proxy layer, use HTTPS, set
-  `JOBHUNT_SECURE_COOKIES=true`, and keep the host, Docker, and proxy patched.
+  proxy, require `JOBHUNT_AUTH_MODE=login` or authentication at a trusted proxy
+  layer, use HTTPS, set `JOBHUNT_SECURE_COOKIES=true`, and keep the host,
+  Docker, and proxy patched.
 
 Do not expose an unauthenticated JobHunt OS port directly to the internet.
 
@@ -93,17 +94,29 @@ JobHunt OS does not provide these protections yet:
 ## Current Controls
 
 - The server rejects non-loopback binds unless `JOBHUNT_ALLOW_NETWORK=true`.
+- Non-loopback no-auth is refused unless
+  `JOBHUNT_ALLOW_INSECURE_NO_AUTH=true` is also set. Loopback no-auth remains
+  allowed for desktop and local-only use.
 - Docker Compose binds the host port to `127.0.0.1:8080` by default.
-- Built-in HTTP Basic authentication is optional and disabled by default. When
-  `JOBHUNT_AUTH_USERNAME` and `JOBHUNT_AUTH_PASSWORD_HASH` are both set, all
-  routes except `/healthz` require credentials. This is an access-control layer,
-  not encryption; use it only over localhost, HTTPS, VPN, or another
+- Built-in authentication is optional and disabled by default. New shared,
+  remote, or reverse-proxy deployments should use `JOBHUNT_AUTH_MODE=login`
+  with `JOBHUNT_AUTH_USERNAME` and `JOBHUNT_AUTH_PASSWORD_HASH`. Basic auth is
+  retained as fallback, legacy, or simple compatibility mode, but it is not the
+  preferred mode for public deployments. This is an access-control layer, not
+  encryption; use it only over localhost, HTTPS, VPN, or another
   encrypted/trusted channel.
+- Login auth uses server-side SQLite sessions. Browser cookies carry only a
+  session token; the database stores a token hash plus session timestamps.
+  `JOBHUNT_SESSION_IDLE_TIMEOUT` controls the idle timeout and
+  `JOBHUNT_SESSION_ABSOLUTE_TIMEOUT` controls the maximum session lifetime.
+  Logout revokes the current server-side session and clears the session
+  cookies.
 - SQLite foreign key enforcement is enabled through the SQLite DSN.
 - State-changing forms use HMAC-signed CSRF tokens.
-- CSRF and theme cookies are `HttpOnly` where applicable and `SameSite=Lax`;
-  `JOBHUNT_SECURE_COOKIES=true` also marks them `Secure` for HTTPS
-  reverse-proxy deployments.
+- CSRF, theme, and login session cookies are `HttpOnly` where applicable and
+  `SameSite=Lax`; `JOBHUNT_SECURE_COOKIES=true` also marks them `Secure` for
+  HTTPS reverse-proxy deployments. With secure cookies enabled, the login
+  session cookie uses the `__Host-` cookie prefix.
 - PDF uploads are capped at 20 MB and checked for a `%PDF-` header.
 - JobHunt OS validates this basic PDF shape, but it does not malware-scan PDFs.
 - Document downloads are constrained to paths under the configured data
@@ -146,38 +159,67 @@ logs as trusted at the same level as the source pipeline.
 
 ## Authentication Boundary
 
-JobHunt OS remains no-auth by default for local-only use on `127.0.0.1`.
-Anyone who can reach the HTTP port can use the app when authentication is not
-configured.
+When running the Go binary directly, JobHunt OS remains no-auth by default for
+local-only use on `127.0.0.1`. Anyone who can reach the HTTP port can use the
+app when authentication is not configured. Non-loopback no-auth is refused
+unless `JOBHUNT_ALLOW_INSECURE_NO_AUTH=true` is set, in addition to
+`JOBHUNT_ALLOW_NETWORK=true`. The provided Compose file requires login auth
+because the app process binds non-loopback inside the container.
 
 For shared hosts, remote access, or reverse-proxy deployments, enable built-in
-HTTP Basic authentication with:
+login authentication with:
 
+- `JOBHUNT_AUTH_MODE=login`
 - `JOBHUNT_AUTH_USERNAME`
 - `JOBHUNT_AUTH_PASSWORD_HASH`
 
 The password hash uses this format:
 
 ```text
+argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>
+```
+
+Argon2id is preferred for new hashes. Existing PBKDF2-SHA256 hashes remain
+supported for compatibility if your install already uses one:
+
+```text
 pbkdf2-sha256$<iterations>$<salt-base64url>$<digest-base64url>
 ```
 
-Do not store plaintext passwords in the repository, Compose file, or docs.
-Prefer a local `.env` file, systemd environment file, or secret manager
-appropriate for the host.
+Use passwords or passphrases with at least 15 characters. Passphrases are
+encouraged. JobHunt OS does not require uppercase/lowercase/number/symbol
+composition rules and does not force periodic password rotation; rotate when a
+password may have been exposed or when access should be removed. The built-in
+Argon2id hash helper enforces this policy when it creates a hash; if you
+generate a supported hash with another tool, choose a password that meets the
+same policy because the app cannot recover password strength from the hash.
 
-Use built-in Basic auth only over localhost, HTTPS, VPN, or another
-encrypted/trusted channel. If the app is reachable over plain HTTP by other
+Do not store plaintext passwords or real password hashes in the repository,
+Compose file, screenshots, docs, or other public material. Prefer a local
+`.env` file, CI variables, Vault, systemd environment file, or another secret
+manager appropriate for the host.
+
+Use built-in auth only over localhost, HTTPS, VPN, or another encrypted/trusted
+channel. Set `JOBHUNT_SECURE_COOKIES=true` when users access the app through an
+HTTPS reverse proxy. Leave it `false` for direct plain-HTTP LAN access, because
+browsers do not send `Secure` cookies over HTTP. Set
+`JOBHUNT_AUTH_TRUST_PROXY_HEADERS=true` only behind a trusted reverse proxy that
+sanitizes forwarded headers, because those headers are used for login
+throttling client identity. If the app is reachable over plain HTTP by other
 people, credentials and private job-hunt data can be observed in transit.
+Deployed non-loopback instances, including firblab-v2 GitLab CI deployments,
+must use login auth; HTTPS plus secure cookies is the preferred remote-access
+posture when a trusted reverse proxy is in front.
 
 ## Brute-Force Protection
 
-Built-in Basic auth intentionally stays small and does not include login
-throttling. For remote access, prefer reverse-proxy or host-level controls:
+Login auth includes a small in-process throttle and temporary lockout for
+repeated failed sign-in attempts. For remote access, still add reverse-proxy or
+host-level controls:
 
 - Rate-limit requests to the app or to authenticated paths at the proxy.
-- Watch proxy access logs for repeated `401` responses and ban abusive clients
-  with fail2ban or the host firewall.
+- Watch proxy access logs for repeated failed login responses and ban abusive
+  clients with fail2ban or the host firewall.
 - Keep the app bound to `127.0.0.1` so clients cannot bypass the proxy controls.
 - Use long, unique passwords and rotate the hash if logs or backups suggest a
   credential may have leaked.

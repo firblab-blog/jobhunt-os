@@ -12,18 +12,24 @@ the current self-hosted setup.
 
 ## Quick Install
 
-Create an install directory, download the Compose file, and start the app:
-
-On Linux, if you want `./data` files owned by your host user from first boot,
-create the optional `.env` file in [Linux Data Ownership](#linux-data-ownership)
-after downloading `docker-compose.yml` and before running
-`docker compose up -d`.
+Create an install directory, download the Compose file, create a local `.env`
+with login auth, and start the app. Generate the password hash locally; see
+[CONFIGURATION.md](CONFIGURATION.md) for the Argon2id hash command.
 
 ```sh
 mkdir jobhunt-os
 cd jobhunt-os
 curl -O https://raw.githubusercontent.com/firblab-blog/jobhunt-os/main/deploy/docker-compose.yml
+$EDITOR .env
 docker compose up -d
+```
+
+The `.env` file must include:
+
+```text
+JOBHUNT_AUTH_MODE=login
+JOBHUNT_AUTH_USERNAME=<username>
+JOBHUNT_AUTH_PASSWORD_HASH='argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>'
 ```
 
 Then open:
@@ -46,17 +52,17 @@ The app container runs as a non-root user. The Compose file includes a one-shot
 `jobhunt-os-init` helper that creates the expected `./data` directories and
 sets ownership before the app starts.
 
-For host-owned files on Linux, create a `.env` file before first boot:
+For host-owned files on Linux, add these values to `.env` before first boot:
 
-```sh
-printf "JOBHUNT_UID=%s\nJOBHUNT_GID=%s\n" "$(id -u)" "$(id -g)" > .env
-docker compose up -d
+```text
+JOBHUNT_UID=<host-uid>
+JOBHUNT_GID=<host-gid>
 ```
 
-The `.env` file is optional, but it is recommended for Linux bind mounts because
-it makes the container write `./data` files as your host user. If you add or
-change it later, run `docker compose up -d` again so the data-prep helper can
-be recreated and adjust ownership.
+Those ownership values are optional, but recommended for Linux bind mounts
+because they make the container write `./data` files as your host user. If you
+add or change them later, run `docker compose up -d` again so the data-prep
+helper can be recreated and adjust ownership.
 
 The prepared data directory has this shape:
 
@@ -67,36 +73,49 @@ data/
   tmp/
 ```
 
-## Optional Built-In Authentication
+## Built-In Authentication
 
-The default install is no-auth on `http://127.0.0.1:8080` for local use. To
-require HTTP Basic authentication, set both auth variables in your local `.env`
-file before restarting Compose:
+The Compose install requires the built-in login flow because the process listens
+on the container network interface. Set the auth mode, username, and password
+hash in your local `.env` file before starting Compose:
 
 ```text
+JOBHUNT_AUTH_MODE=login
 JOBHUNT_AUTH_USERNAME=<username>
-JOBHUNT_AUTH_PASSWORD_HASH='pbkdf2-sha256$210000$<salt-base64url>$<digest-base64url>'
+JOBHUNT_AUTH_PASSWORD_HASH='argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>'
 ```
 
 Generate the password hash locally. See [CONFIGURATION.md](CONFIGURATION.md)
-for the PBKDF2-SHA256 hash format and a command that prompts for the password
-without writing it to shell history.
+for the Argon2id hash format and a command that prompts for the password
+without writing it to shell history. Existing PBKDF2-SHA256 hashes remain
+legacy-compatible if your install already uses one.
 
 Use single quotes around the hash in Docker Compose `.env` files so the `$`
 separators are passed literally. If you keep an unquoted example, escape each
 `$` as `$$`.
 
+Use a password or passphrase with at least 15 characters. JobHunt OS does not
+require symbol/number/uppercase composition rules and does not force periodic
+rotation; change the password when it may be exposed or access should be
+removed. If you generate a supported hash with a different tool, choose a
+password that still meets this policy. Do not commit plaintext passwords or real
+password hashes to public repositories.
+
 When configured, `/healthz` remains unauthenticated for health checks. App
 routes, JSON export, and document downloads require credentials.
 
-HTTP Basic authentication is only appropriate over `localhost`, HTTPS, VPN, or
-another encrypted/trusted channel. Do not publish the app with built-in Basic
-auth over plain HTTP on an untrusted network.
+Built-in authentication is only appropriate over `localhost`, HTTPS, VPN, or
+another encrypted/trusted channel. Do not publish the app over plain HTTP on an
+untrusted network.
 
 For HTTPS reverse-proxy deployments, also set
 `JOBHUNT_SECURE_COOKIES=true` in `.env` so browsers only send app cookies over
-HTTPS. See [REVERSE_PROXY.md](REVERSE_PROXY.md) for the recommended exposure
-pattern.
+HTTPS. Set `JOBHUNT_AUTH_TRUST_PROXY_HEADERS=true` only when the app is behind a
+trusted reverse proxy that sanitizes forwarded headers. See
+[REVERSE_PROXY.md](REVERSE_PROXY.md) for the recommended exposure pattern.
+Deployed non-loopback instances, including firblab-v2/GitLab CI deployments,
+must use login auth. Keep secure cookies off for direct plain-HTTP LAN access;
+turn them on when users access the app through a trusted HTTPS reverse proxy.
 
 ## Public Image
 
@@ -167,6 +186,11 @@ the install local-only from outside the machine.
 
 For HTTPS or a public hostname, put a reverse proxy in front of the local port.
 See [REVERSE_PROXY.md](REVERSE_PROXY.md).
+
+Local desktop use may run without auth on loopback. Non-loopback no-auth is
+refused unless both network binding is enabled and
+`JOBHUNT_ALLOW_INSECURE_NO_AUTH=true` is set for a deployment protected
+elsewhere.
 
 ## Next Steps
 

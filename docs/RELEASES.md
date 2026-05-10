@@ -62,6 +62,13 @@ until any exception is documented in the release notes.
 - Docs review: check `README.md`, install, upgrade, backup/restore, reverse
   proxy, security, and release notes for changes users need before upgrading or
   exposing the app on a network.
+- Auth review: for deployed non-loopback release candidates, including
+  firblab-v2/GitLab CI deployments, confirm the runtime uses
+  `JOBHUNT_AUTH_MODE=login` and secret storage for plaintext passwords and real
+  password hashes. For trusted HTTPS reverse-proxy access, also confirm
+  `JOBHUNT_SECURE_COOKIES=true`; for direct plain-HTTP LAN access, keep secure
+  cookies off so login sessions work. Existing PBKDF2-SHA256 hashes are
+  legacy-compatible, but Argon2id is preferred for new hashes.
 
 ## What To Pin
 

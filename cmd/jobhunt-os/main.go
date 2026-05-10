@@ -12,6 +12,7 @@ import (
 
 	"github.com/firblab-blog/jobhunt-os/internal/config"
 	"github.com/firblab-blog/jobhunt-os/internal/server"
+	"github.com/firblab-blog/jobhunt-os/internal/session"
 	"github.com/firblab-blog/jobhunt-os/internal/store/sqlite"
 )
 
@@ -21,6 +22,7 @@ func main() {
 		slog.Error("invalid runtime config", "error", err)
 		os.Exit(1)
 	}
+	logStartupSecurityWarnings(cfg)
 
 	db, dbPath, err := sqlite.Open(context.Background(), cfg.DataDir)
 	if err != nil {
@@ -38,12 +40,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	appStore := sqlite.NewStore(db)
+	var sessionStore session.Store
+	if cfg.AuthMode == config.AuthModeLogin {
+		sessionStore = sqlite.NewSessionStore(db, session.Policy{
+			IdleTimeout:     cfg.SessionIdleTimeout,
+			AbsoluteTimeout: cfg.SessionAbsoluteTimeout,
+		})
+	}
+
 	srv := &http.Server{
 		Addr: cfg.Addr,
-		Handler: server.NewWithOptions(sqlite.NewStore(db), server.Options{
-			DataDir:       cfg.DataDir,
-			SecureCookies: cfg.SecureCookies,
+		Handler: server.NewWithOptions(appStore, server.Options{
+			DataDir:               cfg.DataDir,
+			SessionStore:          sessionStore,
+			SecureCookies:         cfg.SecureCookies,
+			AuthTrustProxyHeaders: cfg.AuthTrustProxyHeaders,
 			Auth: server.AuthOptions{
+				Mode:         cfg.AuthMode,
 				Username:     cfg.AuthUsername,
 				PasswordHash: cfg.AuthPasswordHash,
 			},
@@ -80,5 +94,15 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("graceful shutdown failed", "error", err)
 		os.Exit(1)
+	}
+}
+
+func logStartupSecurityWarnings(cfg config.Config) {
+	if cfg.AuthMode == config.AuthModeDisabled && cfg.AllowInsecureNoAuth {
+		slog.Warn("INSECURE no-auth mode allowed by escape hatch",
+			"addr", cfg.Addr,
+			"auth_mode", cfg.AuthMode,
+			"escape_hatch", config.EnvAllowInsecureNoAuth,
+		)
 	}
 }

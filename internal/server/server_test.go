@@ -4,18 +4,21 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/firblab-blog/jobhunt-os/internal/auth"
 	"github.com/firblab-blog/jobhunt-os/internal/model"
+	"github.com/firblab-blog/jobhunt-os/internal/session"
 	"github.com/firblab-blog/jobhunt-os/internal/store"
 )
 
@@ -124,7 +127,7 @@ func TestAuthRejectsInvalidCredentials(t *testing.T) {
 	}
 }
 
-func TestAuthProtectsExportAndDocumentDownload(t *testing.T) {
+func TestAuthProtectsExportDocumentPreviewAndDownload(t *testing.T) {
 	t.Parallel()
 
 	dataDir := t.TempDir()
@@ -134,7 +137,7 @@ func TestAuthProtectsExportAndDocumentDownload(t *testing.T) {
 		},
 	}
 
-	for _, target := range []string{"/export.json", "/documents/doc_1/download"} {
+	for _, target := range []string{"/export.json", "/documents/doc_1", "/documents/doc_1/download"} {
 		target := target
 		t.Run(target, func(t *testing.T) {
 			t.Parallel()
@@ -144,6 +147,601 @@ func TestAuthProtectsExportAndDocumentDownload(t *testing.T) {
 
 			if rec.Code != http.StatusUnauthorized {
 				t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+			}
+		})
+	}
+}
+
+func TestLoginAuthRedirectsUnauthenticatedProtectedGET(t *testing.T) {
+	t.Parallel()
+
+	authOptions, _ := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	rec := requestWithOptions(http.MethodGet, "/applications?status=applied", &fakeApplicationStore{}, Options{
+		Auth:         authOptions,
+		SessionStore: newFakeSessionStore(),
+	})
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if location := rec.Header().Get("Location"); location != "/login?next=%2Fapplications%3Fstatus%3Dapplied" {
+		t.Fatalf("Location = %q, want login redirect with next", location)
+	}
+}
+
+func TestLoginAuthLeavesHealthzUnauthenticated(t *testing.T) {
+	t.Parallel()
+
+	authOptions, _ := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	rec := requestWithOptions(http.MethodGet, "/healthz", nil, Options{
+		Auth:         authOptions,
+		SessionStore: newFakeSessionStore(),
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); body != "ok\n" {
+		t.Fatalf("body = %q, want ok", body)
+	}
+}
+
+func TestLoginPageRenders(t *testing.T) {
+	t.Parallel()
+
+	authOptions, _ := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	rec := requestWithOptions(http.MethodGet, "/login?next=/documents", nil, Options{
+		Auth:         authOptions,
+		SessionStore: newFakeSessionStore(),
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`method="post" action="/login"`,
+		`name="username"`,
+		`autocomplete="username"`,
+		`name="password" type="password"`,
+		`autocomplete="current-password"`,
+		`name="csrf_token"`,
+		`name="next" value="/documents"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body does not contain %q", want)
+		}
+	}
+	if cookie := firstCookieNamed(rec, csrfCookieName); cookie == nil {
+		t.Fatalf("login page did not set CSRF cookie")
+	}
+	if got := rec.Header().Get("Cache-Control"); got != noStoreCacheControl {
+		t.Fatalf("Cache-Control = %q, want %q", got, noStoreCacheControl)
+	}
+}
+
+func TestLoginRequiresCSRF(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	form := url.Values{
+		"username": {testAuthUsername},
+		"password": {password},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	NewWithOptions(nil, Options{Auth: authOptions, SessionStore: newFakeSessionStore()}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestLoginCorrectCredentialsCreateSessionCookie(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	sessionStore := newFakeSessionStore()
+	csrfCookie, token := newLoginCSRF(t, authOptions, sessionStore, "/")
+	form := url.Values{
+		csrfFieldName: {token},
+		"username":    {testAuthUsername},
+		"password":    {password},
+	}
+	rec := postLoginForm(t, authOptions, sessionStore, form, csrfCookie)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if location := rec.Header().Get("Location"); location != "/" {
+		t.Fatalf("Location = %q, want /", location)
+	}
+	cookie := firstCookieNamed(rec, sessionCookieName)
+	if cookie == nil {
+		t.Fatalf("login did not set session cookie")
+	}
+	if cookie.Value == "" || cookie.Path != "/" || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.Secure {
+		t.Fatalf("session cookie = %#v, want non-secure HttpOnly root SameSite=Lax cookie", cookie)
+	}
+}
+
+func TestLoginSecureCookiesOptionSetsSessionCookieSecure(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	sessionStore := newFakeSessionStore()
+	csrfCookie, token := newLoginCSRF(t, authOptions, sessionStore, "/")
+	form := url.Values{
+		csrfFieldName: {token},
+		"username":    {testAuthUsername},
+		"password":    {password},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(csrfCookie)
+	rec := httptest.NewRecorder()
+
+	NewWithOptions(nil, Options{
+		Auth:          authOptions,
+		SessionStore:  sessionStore,
+		SecureCookies: true,
+	}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	cookie := firstCookieNamed(rec, hostSessionCookieName)
+	if cookie == nil {
+		t.Fatalf("login did not set host-prefixed session cookie")
+	}
+	if cookie.Value == "" || cookie.Path != "/" || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || !cookie.Secure {
+		t.Fatalf("session cookie = %#v, want secure HttpOnly root SameSite=Lax cookie", cookie)
+	}
+}
+
+func TestLoginWrongCredentialsFailGenerically(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	sessionStore := newFakeSessionStore()
+	csrfCookie, token := newLoginCSRF(t, authOptions, sessionStore, "/applications")
+	form := url.Values{
+		csrfFieldName: {token},
+		"username":    {testAuthUsername},
+		"password":    {password + "/wrong"},
+		"next":        {"/applications"},
+	}
+	rec := postLoginForm(t, authOptions, sessionStore, form, csrfCookie)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, loginErrorMessage) {
+		t.Fatalf("body does not contain generic login error")
+	}
+	if cookie := firstCookieNamed(rec, sessionCookieName); cookie != nil {
+		t.Fatalf("login set session cookie for wrong credentials: %#v", cookie)
+	}
+}
+
+func TestLoginRepeatedFailuresThrottleThenLock(t *testing.T) {
+	t.Parallel()
+
+	srv, _, password, clock := newLoginTestServer(t, false)
+	client := "198.51.100.10"
+
+	for i := 0; i < 5; i++ {
+		rec := postLoginAttempt(t, srv, testAuthUsername, password+"/wrong", client+":1234", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("failure %d status = %d, want %d", i+1, rec.Code, http.StatusOK)
+		}
+		if status := srv.loginLimiter.Check(clock.Now(), testAuthUsername, client); status.Throttled || status.Locked {
+			t.Fatalf("failure %d status = %#v, want not throttled or locked", i+1, status)
+		}
+	}
+
+	rec := postLoginAttempt(t, srv, testAuthUsername, password+"/wrong", client+":1234", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sixth failure status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	status := srv.loginLimiter.Check(clock.Now(), testAuthUsername, client)
+	if !status.Throttled || status.Locked {
+		t.Fatalf("sixth failure status = %#v, want throttled but not locked", status)
+	}
+
+	for i := 0; i < 4; i++ {
+		rec := postLoginAttempt(t, srv, testAuthUsername, password+"/wrong", client+":1234", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("locked-track failure %d status = %d, want %d", i+7, rec.Code, http.StatusOK)
+		}
+	}
+	status = srv.loginLimiter.Check(clock.Now(), testAuthUsername, client)
+	if !status.Locked {
+		t.Fatalf("tenth failure status = %#v, want locked", status)
+	}
+
+	clock.Advance(16 * time.Minute)
+	status = srv.loginLimiter.Check(clock.Now(), testAuthUsername, client)
+	if status.Throttled || status.Locked {
+		t.Fatalf("post-lockout status = %#v, want lockout expired", status)
+	}
+}
+
+func TestLoginSuccessfulAttemptResetsThrottleCounters(t *testing.T) {
+	t.Parallel()
+
+	srv, _, password, clock := newLoginTestServer(t, false)
+	client := "198.51.100.10"
+
+	for i := 0; i < 6; i++ {
+		postLoginAttempt(t, srv, testAuthUsername, password+"/wrong", client+":1234", nil)
+	}
+	if status := srv.loginLimiter.Check(clock.Now(), testAuthUsername, client); !status.Throttled {
+		t.Fatalf("status = %#v, want throttled before successful login", status)
+	}
+
+	clock.Advance(2 * time.Second)
+	rec := postLoginAttempt(t, srv, testAuthUsername, password, client+":1234", nil)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("successful login status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if status := srv.loginLimiter.Check(clock.Now(), testAuthUsername, client); status.Throttled || status.Locked {
+		t.Fatalf("status after successful login = %#v, want reset", status)
+	}
+
+	rec = postLoginAttempt(t, srv, testAuthUsername, password+"/wrong", client+":1234", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("post-reset failure status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if status := srv.loginLimiter.Check(clock.Now(), testAuthUsername, client); status.Throttled || status.Locked {
+		t.Fatalf("post-reset failure status = %#v, want first failure only", status)
+	}
+}
+
+func TestLoginThrottleScopesUsernameAndClient(t *testing.T) {
+	t.Parallel()
+
+	srv, _, password, clock := newLoginTestServer(t, false)
+	lockedClient := "198.51.100.10"
+	otherClient := "203.0.113.10"
+
+	for i := 0; i < 10; i++ {
+		postLoginAttempt(t, srv, testAuthUsername, password+"/wrong", lockedClient+":1234", nil)
+	}
+
+	if status := srv.loginLimiter.Check(clock.Now(), testAuthUsername, lockedClient); !status.Locked {
+		t.Fatalf("original username/client status = %#v, want locked", status)
+	}
+	if status := srv.loginLimiter.Check(clock.Now(), testAuthUsername, otherClient); !status.Locked {
+		t.Fatalf("same username different client status = %#v, want locked by username", status)
+	}
+	if status := srv.loginLimiter.Check(clock.Now(), "mallory", lockedClient); !status.Locked {
+		t.Fatalf("different username same client status = %#v, want locked by client", status)
+	}
+	if status := srv.loginLimiter.Check(clock.Now(), "mallory", otherClient); status.Throttled || status.Locked {
+		t.Fatalf("different username/client status = %#v, want unaffected", status)
+	}
+}
+
+func TestLoginClientIdentityProxyHeaders(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodPost, "/login", nil)
+	req.RemoteAddr = "10.0.0.5:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.8, 198.51.100.8")
+	req.Header.Set("X-Real-IP", "198.51.100.9")
+	if got := clientIdentity(req, false); got != "10.0.0.5" {
+		t.Fatalf("clientIdentity(untrusted) = %q, want RemoteAddr", got)
+	}
+	if got := clientIdentity(req, true); got != "203.0.113.8" {
+		t.Fatalf("clientIdentity(trusted XFF) = %q, want forwarded client", got)
+	}
+
+	req.Header.Set("X-Forwarded-For", "not an ip")
+	if got := clientIdentity(req, true); got != "198.51.100.9" {
+		t.Fatalf("clientIdentity(trusted X-Real-IP) = %q, want real IP fallback", got)
+	}
+
+	req.Header.Set("X-Real-IP", "still not an ip")
+	if got := clientIdentity(req, true); got != "10.0.0.5" {
+		t.Fatalf("clientIdentity(invalid proxy headers) = %q, want RemoteAddr fallback", got)
+	}
+}
+
+func TestLoginFailureDoesNotLogOrRenderPassword(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(previous)
+
+	srv, _, _, _ := newLoginTestServer(t, true)
+	password := "do-not-log-this-password"
+	rec := postLoginAttempt(t, srv, testAuthUsername, password, "10.0.0.5:1234", map[string]string{
+		"X-Forwarded-For": "198.51.100.44, 10.0.0.5",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, password) {
+		t.Fatalf("login failure body contains password")
+	}
+	gotLogs := logs.String()
+	if strings.Contains(gotLogs, password) {
+		t.Fatalf("login failure logs contain password: %s", gotLogs)
+	}
+	for _, want := range []string{
+		"login failed",
+		`username=avery`,
+		`client=198.51.100.44`,
+		`throttled=false`,
+		`locked=false`,
+	} {
+		if !strings.Contains(gotLogs, want) {
+			t.Fatalf("logs do not contain %q: %s", want, gotLogs)
+		}
+	}
+}
+
+func TestLoginSessionGrantsAccess(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	sessionStore := newFakeSessionStore()
+	sessionCookie := loginSessionCookie(t, authOptions, password, sessionStore)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(sessionCookie)
+	rec := httptest.NewRecorder()
+
+	NewWithOptions(&fakeApplicationStore{}, Options{Auth: authOptions, SessionStore: sessionStore}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestSensitiveAuthenticatedPagesNoStore(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	sessionStore := newFakeSessionStore()
+	sessionCookie := loginSessionCookie(t, authOptions, password, sessionStore)
+	appStore := &fakeApplicationStore{
+		applications: []model.Application{testApplication()},
+		documents: []model.Document{
+			{ID: "doc_1", Name: "Resume", Type: model.DocumentResume, StoragePath: "documents/library/doc_1.pdf"},
+		},
+	}
+	srv := NewWithOptions(appStore, Options{Auth: authOptions, SessionStore: sessionStore})
+
+	for _, target := range []string{
+		"/",
+		"/applications",
+		"/applications/new",
+		"/applications/app_1",
+		"/documents",
+		"/documents/doc_1",
+		"/contacts",
+		"/settings",
+		"/export.json",
+	} {
+		target := target
+		t.Run(target, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodGet, target, nil)
+			req.AddCookie(sessionCookie)
+			rec := httptest.NewRecorder()
+
+			srv.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+			if got := rec.Header().Get("Cache-Control"); got != noStoreCacheControl {
+				t.Fatalf("Cache-Control = %q, want %q", got, noStoreCacheControl)
+			}
+		})
+	}
+}
+
+func TestLoginPageRedirectsAlreadyAuthenticatedUser(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	sessionStore := newFakeSessionStore()
+	sessionCookie := loginSessionCookie(t, authOptions, password, sessionStore)
+	req := httptest.NewRequest(http.MethodGet, "/login?next=/documents", nil)
+	req.AddCookie(sessionCookie)
+	rec := httptest.NewRecorder()
+
+	NewWithOptions(nil, Options{Auth: authOptions, SessionStore: sessionStore}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if location := rec.Header().Get("Location"); location != "/documents" {
+		t.Fatalf("Location = %q, want /documents", location)
+	}
+}
+
+func TestLogoutRevokesSessionAndClearsCookie(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	sessionStore := newFakeSessionStore()
+	sessionCookie := loginSessionCookie(t, authOptions, password, sessionStore)
+	csrfCookie, token := newAuthenticatedPageCSRF(t, authOptions, sessionStore, sessionCookie, "/documents")
+	form := url.Values{
+		csrfFieldName: {token},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/logout", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(sessionCookie)
+	req.AddCookie(csrfCookie)
+	rec := httptest.NewRecorder()
+
+	NewWithOptions(&fakeApplicationStore{}, Options{Auth: authOptions, SessionStore: sessionStore}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if location := rec.Header().Get("Location"); location != "/login" {
+		t.Fatalf("Location = %q, want /login", location)
+	}
+	cleared := firstCookieNamed(rec, sessionCookieName)
+	if cleared == nil || cleared.MaxAge >= 0 {
+		t.Fatalf("session clear cookie = %#v, want MaxAge < 0", cleared)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(sessionCookie)
+	rec = httptest.NewRecorder()
+	NewWithOptions(&fakeApplicationStore{}, Options{Auth: authOptions, SessionStore: sessionStore}).ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("post-logout status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+}
+
+func TestLogoutRequiresCSRF(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	sessionStore := newFakeSessionStore()
+	sessionCookie := loginSessionCookie(t, authOptions, password, sessionStore)
+	req := httptest.NewRequest(http.MethodPost, "/logout", strings.NewReader(url.Values{}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(sessionCookie)
+	rec := httptest.NewRecorder()
+
+	NewWithOptions(&fakeApplicationStore{}, Options{Auth: authOptions, SessionStore: sessionStore}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if found, err := sessionStore.LookupSession(context.Background(), sessionCookie.Value); err != nil || found.ID == "" {
+		t.Fatalf("session lookup after rejected logout = %#v, %v; want active session", found, err)
+	}
+}
+
+func TestLoginAuthProtectsExportDocumentPreviewAndDownload(t *testing.T) {
+	t.Parallel()
+
+	authOptions, _ := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	appStore := &fakeApplicationStore{
+		documents: []model.Document{
+			{ID: "doc_1", Name: "Resume", Type: model.DocumentResume, StoragePath: "documents/library/doc_1.pdf"},
+		},
+	}
+
+	for _, target := range []string{"/export.json", "/documents/doc_1", "/documents/doc_1/download"} {
+		target := target
+		t.Run(target, func(t *testing.T) {
+			t.Parallel()
+
+			rec := requestWithOptions(http.MethodGet, target, appStore, Options{
+				DataDir:      t.TempDir(),
+				Auth:         authOptions,
+				SessionStore: newFakeSessionStore(),
+			})
+			if rec.Code != http.StatusSeeOther {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+			}
+			if location := rec.Header().Get("Location"); !strings.HasPrefix(location, "/login?next=") {
+				t.Fatalf("Location = %q, want login redirect", location)
+			}
+		})
+	}
+}
+
+func TestLoginAuthPublicAllowlistIsNarrow(t *testing.T) {
+	t.Parallel()
+
+	authOptions, _ := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	srv := NewWithOptions(&fakeApplicationStore{}, Options{
+		Auth:         authOptions,
+		SessionStore: newFakeSessionStore(),
+	})
+
+	publicGETs := []string{"/healthz", "/login", "/static/styles.css"}
+	for _, target := range publicGETs {
+		target := target
+		t.Run("public "+target, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodGet, target, nil)
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s status = %d, want %d", target, rec.Code, http.StatusOK)
+			}
+			if location := rec.Header().Get("Location"); location != "" {
+				t.Fatalf("%s Location = %q, want empty", target, location)
+			}
+		})
+	}
+
+	protectedGETs := []string{
+		"/",
+		"/applications",
+		"/applications/new",
+		"/documents",
+		"/contacts",
+		"/settings",
+		"/backup",
+		"/export.json",
+		"/theme?theme=dark&return_to=/",
+	}
+	for _, target := range protectedGETs {
+		target := target
+		t.Run("protected GET "+target, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodGet, target, nil)
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusSeeOther {
+				t.Fatalf("%s status = %d, want %d", target, rec.Code, http.StatusSeeOther)
+			}
+			if location := rec.Header().Get("Location"); !strings.HasPrefix(location, "/login?next=") {
+				t.Fatalf("%s Location = %q, want login redirect", target, location)
+			}
+		})
+	}
+
+	protectedPOSTs := []string{"/logout", "/applications", "/documents", "/contacts"}
+	for _, target := range protectedPOSTs {
+		target := target
+		t.Run("protected POST "+target, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(""))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("%s status = %d, want %d", target, rec.Code, http.StatusUnauthorized)
 			}
 		})
 	}
@@ -1889,34 +2487,122 @@ func TestApplicationsUpdatePostingRejectsNonPDF(t *testing.T) {
 	}
 }
 
-func TestApplicationDetailPostRequiresCSRF(t *testing.T) {
+func TestStateChangingRoutesRequireCSRF(t *testing.T) {
 	t.Parallel()
 
-	for _, target := range []string{
-		"/applications/app_1/events",
-		"/applications/app_1/status",
-	} {
-		appStore := &fakeApplicationStore{
-			applications: []model.Application{testApplication()},
-		}
-		form := url.Values{
-			"event_type":  {"note"},
-			"occurred_at": {"2026-05-06"},
-			"summary":     {"Missing CSRF"},
-			"status":      {string(model.StatusApplied)},
-		}
-		req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		rec := httptest.NewRecorder()
+	tests := []struct {
+		name string
+		req  func(t *testing.T) *http.Request
+	}{
+		{
+			name: "create application",
+			req: func(t *testing.T) *http.Request {
+				t.Helper()
+				form := url.Values{
+					"company":  {"Northstar Systems"},
+					"role":     {"Senior Platform Engineer"},
+					"status":   {string(model.StatusApplied)},
+					"priority": {string(model.PriorityHigh)},
+				}
+				req := httptest.NewRequest(http.MethodPost, "/applications", strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				return req
+			},
+		},
+		{
+			name: "add event",
+			req: func(t *testing.T) *http.Request {
+				t.Helper()
+				form := url.Values{
+					"event_type":  {string(model.EventNote)},
+					"occurred_at": {"2026-05-06"},
+					"summary":     {"Missing CSRF"},
+				}
+				req := httptest.NewRequest(http.MethodPost, "/applications/app_1/events", strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				return req
+			},
+		},
+		{
+			name: "update status",
+			req: func(t *testing.T) *http.Request {
+				t.Helper()
+				form := url.Values{
+					"status": {string(model.StatusApplied)},
+				}
+				req := httptest.NewRequest(http.MethodPost, "/applications/app_1/status", strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				return req
+			},
+		},
+		{
+			name: "update posting",
+			req: func(t *testing.T) *http.Request {
+				t.Helper()
+				var body bytes.Buffer
+				writer := multipart.NewWriter(&body)
+				if err := writer.WriteField("posting_url", "https://jobs.example.com/platform"); err != nil {
+					t.Fatal(err)
+				}
+				if err := writer.Close(); err != nil {
+					t.Fatal(err)
+				}
+				req := httptest.NewRequest(http.MethodPost, "/applications/app_1/documents", &body)
+				req.Header.Set("Content-Type", writer.FormDataContentType())
+				return req
+			},
+		},
+		{
+			name: "create document",
+			req: func(t *testing.T) *http.Request {
+				t.Helper()
+				form := url.Values{
+					"name":          {"Platform resume"},
+					"document_type": {string(model.DocumentResume)},
+				}
+				req := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				return req
+			},
+		},
+		{
+			name: "create contact",
+			req: func(t *testing.T) *http.Request {
+				t.Helper()
+				form := url.Values{
+					"name": {"Avery Lee"},
+				}
+				req := httptest.NewRequest(http.MethodPost, "/contacts", strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				return req
+			},
+		},
+	}
 
-		New(appStore).ServeHTTP(rec, req)
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("%s status = %d, want %d", target, rec.Code, http.StatusBadRequest)
-		}
-		if len(appStore.addedEvents) != 0 || len(appStore.statusUpdates) != 0 {
-			t.Fatalf("%s mutated fake store without CSRF", target)
-		}
+			appStore := &fakeApplicationStore{
+				applications: []model.Application{testApplication()},
+			}
+			rec := httptest.NewRecorder()
+
+			NewWithOptions(appStore, Options{DataDir: t.TempDir()}).ServeHTTP(rec, tt.req(t))
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+			if len(appStore.created) != 0 ||
+				len(appStore.addedEvents) != 0 ||
+				len(appStore.statusUpdates) != 0 ||
+				len(appStore.appDocuments) != 0 ||
+				len(appStore.createdDocuments) != 0 ||
+				len(appStore.createdContacts) != 0 {
+				t.Fatalf("mutated fake store without CSRF: %#v", appStore)
+			}
+		})
 	}
 }
 
@@ -2035,8 +2721,8 @@ func requestWithOptions(method, target string, appStore store.ApplicationStore, 
 func testAuthOptions(t *testing.T) (AuthOptions, string) {
 	t.Helper()
 
-	password := t.Name()
-	passwordHash, err := auth.HashPassword(password, []byte("0123456789abcdef"), auth.DefaultIterations)
+	password := "correct horse battery staple"
+	passwordHash, err := auth.HashPassword(password)
 	if err != nil {
 		t.Fatalf("HashPassword() error = %v", err)
 	}
@@ -2044,6 +2730,155 @@ func testAuthOptions(t *testing.T) (AuthOptions, string) {
 		Username:     testAuthUsername,
 		PasswordHash: passwordHash,
 	}, password
+}
+
+type fakeClock struct {
+	current time.Time
+}
+
+func newFakeClock() *fakeClock {
+	return &fakeClock{current: time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC)}
+}
+
+func (f *fakeClock) Now() time.Time {
+	return f.current
+}
+
+func (f *fakeClock) Advance(d time.Duration) {
+	f.current = f.current.Add(d)
+}
+
+func newLoginTestServer(t *testing.T, trustProxy bool) (*Server, AuthOptions, string, *fakeClock) {
+	t.Helper()
+
+	authOptions, password := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	sessionStore := newFakeSessionStore()
+	clock := newFakeClock()
+	srv := NewWithOptions(nil, Options{
+		Auth:                  authOptions,
+		SessionStore:          sessionStore,
+		AuthTrustProxyHeaders: trustProxy,
+	}).(*Server)
+	srv.now = clock.Now
+	return srv, authOptions, password, clock
+}
+
+func firstCookieNamed(rec *httptest.ResponseRecorder, name string) *http.Cookie {
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	return nil
+}
+
+func newLoginCSRF(t *testing.T, authOptions AuthOptions, sessionStore session.Store, next string) (*http.Cookie, string) {
+	t.Helper()
+
+	target := "/login"
+	if next != "" {
+		target += "?next=" + url.QueryEscape(next)
+	}
+	rec := requestWithOptions(http.MethodGet, target, nil, Options{Auth: authOptions, SessionStore: sessionStore})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login page status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	cookie := firstCookieNamed(rec, csrfCookieName)
+	if cookie == nil {
+		t.Fatalf("login page did not set CSRF cookie")
+	}
+	return cookie, extractCSRFToken(t, rec.Body.String())
+}
+
+func newLoginCSRFForServer(t *testing.T, srv http.Handler, next string) (*http.Cookie, string) {
+	t.Helper()
+
+	target := "/login"
+	if next != "" {
+		target += "?next=" + url.QueryEscape(next)
+	}
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login page status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	cookie := firstCookieNamed(rec, csrfCookieName)
+	if cookie == nil {
+		t.Fatalf("login page did not set CSRF cookie")
+	}
+	return cookie, extractCSRFToken(t, rec.Body.String())
+}
+
+func postLoginForm(t *testing.T, authOptions AuthOptions, sessionStore session.Store, form url.Values, csrfCookie *http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(csrfCookie)
+	rec := httptest.NewRecorder()
+
+	NewWithOptions(nil, Options{Auth: authOptions, SessionStore: sessionStore}).ServeHTTP(rec, req)
+	return rec
+}
+
+func postLoginAttempt(t *testing.T, srv http.Handler, username string, password string, remoteAddr string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	csrfCookie, token := newLoginCSRFForServer(t, srv, "/")
+	form := url.Values{
+		csrfFieldName: {token},
+		"username":    {username},
+		"password":    {password},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
+	req.RemoteAddr = remoteAddr
+	req.AddCookie(csrfCookie)
+	rec := httptest.NewRecorder()
+
+	srv.ServeHTTP(rec, req)
+	return rec
+}
+
+func loginSessionCookie(t *testing.T, authOptions AuthOptions, password string, sessionStore session.Store) *http.Cookie {
+	t.Helper()
+
+	csrfCookie, token := newLoginCSRF(t, authOptions, sessionStore, "/")
+	rec := postLoginForm(t, authOptions, sessionStore, url.Values{
+		csrfFieldName: {token},
+		"username":    {testAuthUsername},
+		"password":    {password},
+	}, csrfCookie)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("login status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	cookie := firstCookieNamed(rec, sessionCookieName)
+	if cookie == nil {
+		t.Fatalf("login did not set session cookie")
+	}
+	return cookie
+}
+
+func newAuthenticatedPageCSRF(t *testing.T, authOptions AuthOptions, sessionStore session.Store, sessionCookie *http.Cookie, target string) (*http.Cookie, string) {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req.AddCookie(sessionCookie)
+	rec := httptest.NewRecorder()
+	NewWithOptions(&fakeApplicationStore{}, Options{Auth: authOptions, SessionStore: sessionStore}).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%s status = %d, want %d; body=%s", target, rec.Code, http.StatusOK, rec.Body.String())
+	}
+	cookie := firstCookieNamed(rec, csrfCookieName)
+	if cookie == nil {
+		t.Fatalf("%s did not set CSRF cookie", target)
+	}
+	return cookie, extractCSRFToken(t, rec.Body.String())
 }
 
 func requestWithStore(method, target string, body *strings.Reader, appStore store.ApplicationStore) *httptest.ResponseRecorder {
@@ -2174,6 +3009,61 @@ func testApplication() model.Application {
 			Due:     &now,
 		},
 	}
+}
+
+type fakeSessionStore struct {
+	nextID  int
+	byToken map[string]session.Session
+	byID    map[string]string
+	revoked map[string]bool
+}
+
+func newFakeSessionStore() *fakeSessionStore {
+	return &fakeSessionStore{
+		byToken: make(map[string]session.Session),
+		byID:    make(map[string]string),
+		revoked: make(map[string]bool),
+	}
+}
+
+func (f *fakeSessionStore) CreateSession(context.Context, session.Metadata) (session.Session, string, error) {
+	f.nextID++
+	token := "test-session-token-" + strconv.Itoa(f.nextID)
+	found := session.Session{
+		ID:         "ses_" + strconv.Itoa(f.nextID),
+		CreatedAt:  time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC),
+		LastSeenAt: time.Date(2026, 5, 9, 12, 0, 0, 0, time.UTC),
+		ExpiresAt:  time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+	}
+	f.byToken[token] = found
+	f.byID[found.ID] = token
+	return found, token, nil
+}
+
+func (f *fakeSessionStore) LookupSession(_ context.Context, rawToken string) (session.Session, error) {
+	found, ok := f.byToken[rawToken]
+	if !ok || f.revoked[found.ID] {
+		return session.Session{}, session.ErrNotFound
+	}
+	return found, nil
+}
+
+func (f *fakeSessionStore) TouchSession(ctx context.Context, rawToken string) (session.Session, error) {
+	return f.LookupSession(ctx, rawToken)
+}
+
+func (f *fakeSessionStore) RevokeSession(_ context.Context, id string) error {
+	token, ok := f.byID[id]
+	if !ok {
+		return session.ErrNotFound
+	}
+	f.revoked[id] = true
+	delete(f.byToken, token)
+	return nil
+}
+
+func (f *fakeSessionStore) CleanupExpiredSessions(context.Context) (int64, error) {
+	return 0, nil
 }
 
 type fakeApplicationStore struct {

@@ -99,13 +99,13 @@ func TestMigrateAppliesEmbeddedMigrations(t *testing.T) {
 SELECT count(*)
 FROM sqlite_master
 WHERE type = 'table'
-  AND name IN ('applications', 'contacts', 'schema_migrations');
+  AND name IN ('applications', 'contacts', 'schema_migrations', 'sessions');
 `).Scan(&count)
 	if err != nil {
 		t.Fatalf("query migrated tables: %v", err)
 	}
-	if count != 3 {
-		t.Fatalf("migrated table count = %d, want 3", count)
+	if count != 4 {
+		t.Fatalf("migrated table count = %d, want 4", count)
 	}
 }
 

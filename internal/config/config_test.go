@@ -28,6 +28,21 @@ func TestLoadDefaultsToLoopback(t *testing.T) {
 	if cfg.AuthUsername != "" || cfg.AuthPasswordHash != "" {
 		t.Fatalf("auth config = %q/%q, want empty", cfg.AuthUsername, cfg.AuthPasswordHash)
 	}
+	if cfg.AuthMode != AuthModeDisabled {
+		t.Fatalf("AuthMode = %q, want %q", cfg.AuthMode, AuthModeDisabled)
+	}
+	if cfg.AllowInsecureNoAuth {
+		t.Fatalf("AllowInsecureNoAuth = true, want false")
+	}
+	if cfg.SessionIdleTimeout != 12*time.Hour {
+		t.Fatalf("SessionIdleTimeout = %s, want 12h", cfg.SessionIdleTimeout)
+	}
+	if cfg.SessionAbsoluteTimeout != 30*24*time.Hour {
+		t.Fatalf("SessionAbsoluteTimeout = %s, want 30d", cfg.SessionAbsoluteTimeout)
+	}
+	if cfg.AuthTrustProxyHeaders {
+		t.Fatalf("AuthTrustProxyHeaders = true, want false")
+	}
 	if cfg.SecureCookies {
 		t.Fatalf("SecureCookies = true, want false")
 	}
@@ -99,8 +114,87 @@ func TestLoadParsesAuthEnv(t *testing.T) {
 	if cfg.AuthUsername != "avery" {
 		t.Fatalf("AuthUsername = %q, want avery", cfg.AuthUsername)
 	}
+	if cfg.AuthMode != AuthModeBasic {
+		t.Fatalf("AuthMode = %q, want %q", cfg.AuthMode, AuthModeBasic)
+	}
 	if cfg.AuthPasswordHash != passwordHash {
 		t.Fatalf("AuthPasswordHash = %q, want configured hash", cfg.AuthPasswordHash)
+	}
+}
+
+func TestLoadParsesAuthMode(t *testing.T) {
+	t.Parallel()
+
+	for name, values := range map[string]map[string]string{
+		"basic": {
+			EnvAuthMode:         AuthModeBasic,
+			EnvAuthUsername:     "avery",
+			EnvAuthPasswordHash: testPasswordHash(t),
+		},
+		"login": {
+			EnvAuthMode:         AuthModeLogin,
+			EnvAuthUsername:     "avery",
+			EnvAuthPasswordHash: testPasswordHash(t),
+		},
+	} {
+		name := name
+		values := values
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := Load(env(values))
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+
+			if cfg.AuthMode != values[EnvAuthMode] {
+				t.Fatalf("AuthMode = %q, want %q", cfg.AuthMode, values[EnvAuthMode])
+			}
+		})
+	}
+}
+
+func TestLoadAcceptsLegacyPBKDF2AuthPasswordHash(t *testing.T) {
+	t.Parallel()
+
+	passwordHash, err := auth.HashPBKDF2Password("correct horse battery staple", []byte("0123456789abcdef"), auth.DefaultIterations)
+	if err != nil {
+		t.Fatalf("HashPBKDF2Password() error = %v", err)
+	}
+	cfg, err := Load(env(map[string]string{
+		EnvAuthMode:         AuthModeBasic,
+		EnvAuthUsername:     "avery",
+		EnvAuthPasswordHash: passwordHash,
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.AuthPasswordHash != passwordHash {
+		t.Fatalf("AuthPasswordHash = %q, want legacy PBKDF2 hash", cfg.AuthPasswordHash)
+	}
+}
+
+func TestLoadParsesAuthSessionConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load(env(map[string]string{
+		EnvSessionIdleTimeout:     "45m",
+		EnvSessionAbsoluteTimeout: "45d",
+		EnvAuthTrustProxyHeaders:  "true",
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.SessionIdleTimeout != 45*time.Minute {
+		t.Fatalf("SessionIdleTimeout = %s, want 45m", cfg.SessionIdleTimeout)
+	}
+	if cfg.SessionAbsoluteTimeout != 45*24*time.Hour {
+		t.Fatalf("SessionAbsoluteTimeout = %s, want 45d", cfg.SessionAbsoluteTimeout)
+	}
+	if !cfg.AuthTrustProxyHeaders {
+		t.Fatalf("AuthTrustProxyHeaders = false, want true")
 	}
 }
 
@@ -108,8 +202,24 @@ func TestLoadRejectsPartialAuthEnv(t *testing.T) {
 	t.Parallel()
 
 	for name, values := range map[string]map[string]string{
-		"username only": {EnvAuthUsername: "avery"},
-		"hash only":     {EnvAuthPasswordHash: testPasswordHash(t)},
+		"username only defaults to basic": {EnvAuthUsername: "avery"},
+		"hash only defaults to basic":     {EnvAuthPasswordHash: testPasswordHash(t)},
+		"login username only": {
+			EnvAuthMode:     AuthModeLogin,
+			EnvAuthUsername: "avery",
+		},
+		"login hash only": {
+			EnvAuthMode:         AuthModeLogin,
+			EnvAuthPasswordHash: testPasswordHash(t),
+		},
+		"basic username only": {
+			EnvAuthMode:     AuthModeBasic,
+			EnvAuthUsername: "avery",
+		},
+		"basic hash only": {
+			EnvAuthMode:         AuthModeBasic,
+			EnvAuthPasswordHash: testPasswordHash(t),
+		},
 	} {
 		name := name
 		values := values
@@ -126,11 +236,94 @@ func TestLoadRejectsPartialAuthEnv(t *testing.T) {
 func TestLoadRejectsInvalidAuthPasswordHash(t *testing.T) {
 	t.Parallel()
 
+	for _, authMode := range []string{AuthModeBasic, AuthModeLogin} {
+		authMode := authMode
+		t.Run(authMode, func(t *testing.T) {
+			t.Parallel()
+
+			if _, err := Load(env(map[string]string{
+				EnvAuthMode:         authMode,
+				EnvAuthUsername:     "avery",
+				EnvAuthPasswordHash: "not-a-password-hash",
+			})); err == nil {
+				t.Fatalf("Load() error = nil, want error")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidAuthMode(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Load(env(map[string]string{EnvAuthMode: "sometimes"})); err == nil {
+		t.Fatalf("Load() error = nil, want error")
+	}
+}
+
+func TestLoadAllowsLoopbackNoAuth(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load(env(map[string]string{
+		EnvAddr:     "localhost:9090",
+		EnvAuthMode: AuthModeDisabled,
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.AuthMode != AuthModeDisabled {
+		t.Fatalf("AuthMode = %q, want %q", cfg.AuthMode, AuthModeDisabled)
+	}
+}
+
+func TestLoadRejectsNonLoopbackNoAuth(t *testing.T) {
+	t.Parallel()
+
 	if _, err := Load(env(map[string]string{
-		EnvAuthUsername:     "avery",
-		EnvAuthPasswordHash: "not-a-pbkdf2-hash",
+		EnvAddr:         "0.0.0.0:8080",
+		EnvAllowNetwork: "true",
+		EnvAuthMode:     AuthModeDisabled,
 	})); err == nil {
 		t.Fatalf("Load() error = nil, want error")
+	}
+}
+
+func TestLoadAllowsNonLoopbackNoAuthWithEscapeHatch(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load(env(map[string]string{
+		EnvAddr:                "0.0.0.0:8080",
+		EnvAllowNetwork:        "true",
+		EnvAuthMode:            AuthModeDisabled,
+		EnvAllowInsecureNoAuth: "true",
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !cfg.AllowInsecureNoAuth {
+		t.Fatalf("AllowInsecureNoAuth = false, want true")
+	}
+}
+
+func TestLoadRejectsInvalidAuthBooleansAndDurations(t *testing.T) {
+	t.Parallel()
+
+	for name, values := range map[string]map[string]string{
+		"allow insecure": {EnvAllowInsecureNoAuth: "sometimes"},
+		"trust proxy":    {EnvAuthTrustProxyHeaders: "sometimes"},
+		"idle timeout":   {EnvSessionIdleTimeout: "later"},
+		"absolute":       {EnvSessionAbsoluteTimeout: "0s"},
+	} {
+		name := name
+		values := values
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if _, err := Load(env(values)); err == nil {
+				t.Fatalf("Load() error = nil, want error")
+			}
+		})
 	}
 }
 
@@ -317,7 +510,7 @@ func env(values map[string]string) func(string) string {
 func testPasswordHash(t *testing.T) string {
 	t.Helper()
 
-	hash, err := auth.HashPassword(t.Name(), []byte("0123456789abcdef"), auth.DefaultIterations)
+	hash, err := auth.HashPassword("correct horse battery staple")
 	if err != nil {
 		t.Fatalf("HashPassword() error = %v", err)
 	}

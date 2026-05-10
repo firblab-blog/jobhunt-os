@@ -431,6 +431,33 @@ main {
   margin: 24px auto 48px;
 }
 
+.login-body {
+  min-height: 100vh;
+  display: grid;
+  align-items: center;
+}
+
+.login-main {
+  width: min(420px, calc(100% - var(--page-gutter)));
+  margin: 32px auto;
+}
+
+.login-panel .panel-header {
+  min-height: 86px;
+}
+
+.login-panel h1 {
+  font-size: 24px;
+}
+
+.login-form-grid {
+  grid-template-columns: 1fr;
+}
+
+.login-form-grid button {
+  justify-self: start;
+}
+
 .today-board {
   display: grid;
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);

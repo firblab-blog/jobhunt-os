@@ -14,14 +14,25 @@ import (
 )
 
 const (
-	EnvAddr             = "JOBHUNT_ADDR"
-	EnvAllowNetwork     = "JOBHUNT_ALLOW_NETWORK"
-	EnvDataDir          = "JOBHUNT_DATA_DIR"
-	EnvAuthUsername     = "JOBHUNT_AUTH_USERNAME"
-	EnvAuthPasswordHash = "JOBHUNT_AUTH_PASSWORD_HASH"
-	EnvSecureCookies    = "JOBHUNT_SECURE_COOKIES"
+	EnvAddr                   = "JOBHUNT_ADDR"
+	EnvAllowNetwork           = "JOBHUNT_ALLOW_NETWORK"
+	EnvDataDir                = "JOBHUNT_DATA_DIR"
+	EnvAuthMode               = "JOBHUNT_AUTH_MODE"
+	EnvAuthUsername           = "JOBHUNT_AUTH_USERNAME"
+	EnvAuthPasswordHash       = "JOBHUNT_AUTH_PASSWORD_HASH"
+	EnvAllowInsecureNoAuth    = "JOBHUNT_ALLOW_INSECURE_NO_AUTH"
+	EnvSessionIdleTimeout     = "JOBHUNT_SESSION_IDLE_TIMEOUT"
+	EnvSessionAbsoluteTimeout = "JOBHUNT_SESSION_ABSOLUTE_TIMEOUT"
+	EnvAuthTrustProxyHeaders  = "JOBHUNT_AUTH_TRUST_PROXY_HEADERS"
+	EnvSecureCookies          = "JOBHUNT_SECURE_COOKIES"
 
 	DefaultAddr = "127.0.0.1:8080"
+)
+
+const (
+	AuthModeDisabled = "disabled"
+	AuthModeLogin    = "login"
+	AuthModeBasic    = "basic"
 )
 
 const (
@@ -30,15 +41,20 @@ const (
 )
 
 type Config struct {
-	Addr             string
-	AllowNetwork     bool
-	DataDir          string
-	AuthUsername     string
-	AuthPasswordHash string
-	SecureCookies    bool
-	ReadTimeout      time.Duration
-	WriteTimeout     time.Duration
-	IdleTimeout      time.Duration
+	Addr                   string
+	AllowNetwork           bool
+	DataDir                string
+	AuthMode               string
+	AuthUsername           string
+	AuthPasswordHash       string
+	AllowInsecureNoAuth    bool
+	SessionIdleTimeout     time.Duration
+	SessionAbsoluteTimeout time.Duration
+	AuthTrustProxyHeaders  bool
+	SecureCookies          bool
+	ReadTimeout            time.Duration
+	WriteTimeout           time.Duration
+	IdleTimeout            time.Duration
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -65,55 +81,142 @@ func load(getenv func(string) string, opts loadOptions) (Config, error) {
 	}
 
 	cfg := Config{
-		Addr:         strings.TrimSpace(getenv(EnvAddr)),
-		DataDir:      dataDir,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  2 * time.Minute,
+		Addr:                   strings.TrimSpace(getenv(EnvAddr)),
+		DataDir:                dataDir,
+		SessionIdleTimeout:     12 * time.Hour,
+		SessionAbsoluteTimeout: 30 * 24 * time.Hour,
+		ReadTimeout:            5 * time.Second,
+		WriteTimeout:           10 * time.Second,
+		IdleTimeout:            2 * time.Minute,
 	}
 	if cfg.Addr == "" {
 		cfg.Addr = DefaultAddr
 	}
 
-	allowNetwork := strings.TrimSpace(getenv(EnvAllowNetwork))
-	if allowNetwork != "" {
-		parsed, err := strconv.ParseBool(allowNetwork)
-		if err != nil {
-			return Config{}, fmt.Errorf("%s must be a boolean: %w", EnvAllowNetwork, err)
-		}
-		cfg.AllowNetwork = parsed
+	if cfg.AllowNetwork, err = parseOptionalBool(getenv, EnvAllowNetwork); err != nil {
+		return Config{}, err
+	}
+	if cfg.AllowInsecureNoAuth, err = parseOptionalBool(getenv, EnvAllowInsecureNoAuth); err != nil {
+		return Config{}, err
 	}
 
 	if err := ValidateAddr(cfg.Addr, cfg.AllowNetwork); err != nil {
 		return Config{}, err
 	}
 
-	secureCookies := strings.TrimSpace(getenv(EnvSecureCookies))
-	if secureCookies != "" {
-		parsed, err := strconv.ParseBool(secureCookies)
-		if err != nil {
-			return Config{}, fmt.Errorf("%s must be a boolean: %w", EnvSecureCookies, err)
-		}
-		cfg.SecureCookies = parsed
+	if cfg.SecureCookies, err = parseOptionalBool(getenv, EnvSecureCookies); err != nil {
+		return Config{}, err
+	}
+	if cfg.AuthTrustProxyHeaders, err = parseOptionalBool(getenv, EnvAuthTrustProxyHeaders); err != nil {
+		return Config{}, err
+	}
+	if cfg.SessionIdleTimeout, err = parseOptionalDuration(getenv, EnvSessionIdleTimeout, cfg.SessionIdleTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.SessionAbsoluteTimeout, err = parseOptionalDuration(getenv, EnvSessionAbsoluteTimeout, cfg.SessionAbsoluteTimeout); err != nil {
+		return Config{}, err
 	}
 
 	authUsername := strings.TrimSpace(getenv(EnvAuthUsername))
 	authPasswordHash := strings.TrimSpace(getenv(EnvAuthPasswordHash))
-	switch {
-	case authUsername == "" && authPasswordHash == "":
-	case authUsername == "":
-		return Config{}, fmt.Errorf("%s is required when %s is set", EnvAuthUsername, EnvAuthPasswordHash)
-	case authPasswordHash == "":
-		return Config{}, fmt.Errorf("%s is required when %s is set", EnvAuthPasswordHash, EnvAuthUsername)
-	default:
-		if _, err := auth.ParsePasswordHash(authPasswordHash); err != nil {
-			return Config{}, fmt.Errorf("%s must be a %s password hash: %w", EnvAuthPasswordHash, auth.Scheme, err)
-		}
+	authMode, err := parseAuthMode(getenv, authUsername, authPasswordHash)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AuthMode = authMode
+
+	if err := validateAuthConfig(cfg.AuthMode, cfg.Addr, cfg.AllowInsecureNoAuth, authUsername, authPasswordHash); err != nil {
+		return Config{}, err
+	}
+	if cfg.AuthMode != AuthModeDisabled {
 		cfg.AuthUsername = authUsername
 		cfg.AuthPasswordHash = authPasswordHash
 	}
 
 	return cfg, nil
+}
+
+func parseOptionalBool(getenv func(string) string, key string) (bool, error) {
+	value := strings.TrimSpace(getenv(key))
+	if value == "" {
+		return false, nil
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a boolean: %w", key, err)
+	}
+	return parsed, nil
+}
+
+func parseOptionalDuration(getenv func(string) string, key string, fallback time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+
+	duration, err := parseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a duration: %w", key, err)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("%s must be greater than zero", key)
+	}
+	return duration, nil
+}
+
+func parseDuration(value string) (time.Duration, error) {
+	if strings.HasSuffix(value, "d") {
+		days, err := strconv.Atoi(strings.TrimSuffix(value, "d"))
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(value)
+}
+
+func parseAuthMode(getenv func(string) string, authUsername string, authPasswordHash string) (string, error) {
+	authMode := strings.TrimSpace(strings.ToLower(getenv(EnvAuthMode)))
+	if authMode == "" {
+		if authUsername != "" || authPasswordHash != "" {
+			return AuthModeBasic, nil
+		}
+		return AuthModeDisabled, nil
+	}
+
+	switch authMode {
+	case AuthModeDisabled, AuthModeLogin, AuthModeBasic:
+		return authMode, nil
+	default:
+		return "", fmt.Errorf("%s must be one of %s, %s, or %s", EnvAuthMode, AuthModeDisabled, AuthModeLogin, AuthModeBasic)
+	}
+}
+
+func validateAuthConfig(authMode string, addr string, allowInsecureNoAuth bool, authUsername string, authPasswordHash string) error {
+	switch authMode {
+	case AuthModeDisabled:
+		if authUsername != "" || authPasswordHash != "" {
+			return fmt.Errorf("%s and %s must be empty when %s=%s", EnvAuthUsername, EnvAuthPasswordHash, EnvAuthMode, AuthModeDisabled)
+		}
+		if !allowInsecureNoAuth && !isLoopbackAddr(addr) {
+			return fmt.Errorf("%s=%s is refused for non-loopback %s=%q; set %s=true only if this deployment is protected elsewhere", EnvAuthMode, AuthModeDisabled, EnvAddr, addr, EnvAllowInsecureNoAuth)
+		}
+		return nil
+	case AuthModeLogin, AuthModeBasic:
+		if authUsername == "" {
+			return fmt.Errorf("%s is required when %s=%s", EnvAuthUsername, EnvAuthMode, authMode)
+		}
+		if authPasswordHash == "" {
+			return fmt.Errorf("%s is required when %s=%s", EnvAuthPasswordHash, EnvAuthMode, authMode)
+		}
+		if _, err := auth.ParsePasswordHash(authPasswordHash); err != nil {
+			return fmt.Errorf("%s must be a supported password hash: %w", EnvAuthPasswordHash, err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s must be one of %s, %s, or %s", EnvAuthMode, AuthModeDisabled, AuthModeLogin, AuthModeBasic)
+	}
 }
 
 func dataDir(getenv func(string) string, targetGOOS string, homeDir string) (string, error) {
@@ -202,6 +305,14 @@ func ValidateAddr(addr string, allowNetwork bool) error {
 	}
 
 	return fmt.Errorf("%s=%q is not loopback; set %s=true to allow network binding", EnvAddr, addr, EnvAllowNetwork)
+}
+
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	return isLoopbackHost(host)
 }
 
 func isLoopbackHost(host string) bool {

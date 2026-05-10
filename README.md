@@ -8,14 +8,23 @@ private career data to a SaaS platform.
 
 Docker Compose is the recommended install path for end users.
 
-On Linux, if you want `./data` files owned by your host user from first boot,
-create the optional `.env` file shown in [Data Directory](#data-directory) after
-downloading `docker-compose.yml` and before running `docker compose up -d`.
+The Compose container listens on its container network interface, so the
+provided Compose file requires built-in login auth. Create a local `.env` with
+`JOBHUNT_AUTH_USERNAME` and `JOBHUNT_AUTH_PASSWORD_HASH` before first start.
+See [Configuration](docs/CONFIGURATION.md) for the Argon2id password hash
+command.
+
+```text
+JOBHUNT_AUTH_MODE=login
+JOBHUNT_AUTH_USERNAME=<username>
+JOBHUNT_AUTH_PASSWORD_HASH='argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>'
+```
 
 ```sh
 mkdir jobhunt-os
 cd jobhunt-os
 curl -O https://raw.githubusercontent.com/firblab-blog/jobhunt-os/main/deploy/docker-compose.yml
+$EDITOR .env
 docker compose up -d
 ```
 
@@ -75,10 +84,10 @@ data/
 ```
 
 On Linux, you can make new files in `./data` owned by your host user by creating
-a `.env` file before first start:
+a `.env` file before first start or adding these lines to the auth `.env`:
 
 ```sh
-printf "JOBHUNT_UID=%s\nJOBHUNT_GID=%s\n" "$(id -u)" "$(id -g)" > .env
+printf "JOBHUNT_UID=%s\nJOBHUNT_GID=%s\n" "$(id -u)" "$(id -g)" >> .env
 ```
 
 If you skip this, the install still starts with the image's non-root UID/GID.

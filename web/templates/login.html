@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" data-theme="{{ or .Theme.Value "system" }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in - JobHunt OS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body class="login-body">
+    <main class="login-main">
+      <form class="form-panel login-panel" method="post" action="/login" novalidate>
+        {{ .CSRFToken }}
+        {{ if .Next }}<input type="hidden" name="next" value="{{ .Next }}">{{ end }}
+
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">JobHunt OS</p>
+            <h1>Sign in</h1>
+          </div>
+        </div>
+
+        {{ if .Error }}
+        <div class="form-alert" role="alert">{{ .Error }}</div>
+        {{ end }}
+
+        <div class="form-grid login-form-grid">
+          <label>
+            <span>Username</span>
+            <input name="username" value="{{ .Username }}" autocomplete="username" required autofocus>
+          </label>
+
+          <label>
+            <span>Password</span>
+            <input name="password" type="password" autocomplete="current-password" required>
+          </label>
+
+          <button type="submit">Sign in</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

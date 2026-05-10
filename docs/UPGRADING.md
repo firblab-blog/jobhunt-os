@@ -33,6 +33,27 @@ The application runs database migrations at startup. If the new container does
 not start cleanly, keep the backup and inspect the logs before making further
 changes.
 
+## Authentication Upgrade Notes
+
+New self-hosted and deployed installs should prefer:
+
+```text
+JOBHUNT_AUTH_MODE=login
+JOBHUNT_AUTH_PASSWORD_HASH='argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>'
+```
+
+Existing PBKDF2-SHA256 password hashes remain supported for compatibility, so
+you do not need to rotate immediately just because the preferred hash format is
+now Argon2id. Rotate to a new Argon2id hash when convenient, when a password may
+have been exposed, or when access should be removed.
+
+Loopback no-auth remains allowed for desktop/local use. Non-loopback no-auth is
+refused unless `JOBHUNT_ALLOW_INSECURE_NO_AUTH=true` is set alongside network
+binding. Deployed non-loopback instances, including firblab-v2/GitLab CI
+deployments, must use login auth. Use HTTPS and `JOBHUNT_SECURE_COOKIES=true`
+when access goes through a trusted reverse proxy; keep secure cookies off for
+direct plain-HTTP LAN deployments.
+
 ## `latest` vs Pinned Tags
 
 The default Compose file uses:

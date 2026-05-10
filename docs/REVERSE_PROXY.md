@@ -3,19 +3,40 @@
 The recommended pattern is to keep JobHunt OS bound to `127.0.0.1` on the host
 and let a reverse proxy handle HTTPS and the public hostname.
 
-JobHunt OS has optional built-in HTTP Basic authentication through
-`JOBHUNT_AUTH_USERNAME` and `JOBHUNT_AUTH_PASSWORD_HASH`. If the reverse proxy
-makes the app reachable by other people or by the public internet, enable
-built-in authentication or add authentication at the proxy layer.
+JobHunt OS has optional built-in login authentication through
+`JOBHUNT_AUTH_MODE=login`, `JOBHUNT_AUTH_USERNAME`, and
+`JOBHUNT_AUTH_PASSWORD_HASH`. If the reverse proxy makes the app reachable by
+other people or by the public internet, prefer built-in login authentication.
+HTTP Basic auth remains available as a fallback, legacy, or simple mode, but it
+is not the preferred mode for public deployments. A trusted proxy-level
+authentication layer can also be used when that fits the deployment.
 
-Built-in HTTP Basic authentication is not transport security. It is suitable
-behind the default localhost binding, behind an HTTPS reverse proxy, over a VPN,
-or over another encrypted/trusted channel. Do not rely on it over plain HTTP on
-an untrusted network.
+Built-in authentication is not transport security. It is suitable behind the
+default localhost binding, behind an HTTPS reverse proxy, over a VPN, or over
+another encrypted/trusted channel. Do not rely on it over plain HTTP on an
+untrusted network.
 
 For HTTPS reverse-proxy deployments, also set `JOBHUNT_SECURE_COOKIES=true`.
-This marks the CSRF and theme cookies as `Secure`, so browsers only send them
-over HTTPS. Keep it disabled for plain HTTP localhost access.
+This marks CSRF, theme, and login session cookies as `Secure`, so browsers only
+send them over HTTPS. Keep it disabled for plain HTTP localhost access.
+
+Set `JOBHUNT_AUTH_TRUST_PROXY_HEADERS=true` only when the reverse proxy is
+trusted and sanitizes forwarded headers before requests reach JobHunt OS. The
+login throttle uses these headers to identify clients. Keep it disabled for
+direct LAN access or untrusted proxy paths.
+
+For remote or public access, the app environment should include:
+
+```text
+JOBHUNT_AUTH_MODE=login
+JOBHUNT_AUTH_USERNAME=<username>
+JOBHUNT_AUTH_PASSWORD_HASH='argon2id$v=19$m=19456,t=2,p=1$<salt-base64url>$<digest-base64url>'
+JOBHUNT_SECURE_COOKIES=true
+```
+
+Store the real username and password hash in a local `.env`, CI variables,
+Vault, or an equivalent secret store. Do not commit plaintext passwords or real
+password hashes to a public repository.
 
 The default Compose file already uses this host binding:
 
@@ -49,9 +70,9 @@ With this setup:
 - `JOBHUNT_SECURE_COOKIES=true` is appropriate because users access the app
   over HTTPS.
 
-If the hostname is not private, add authentication. You can enable JobHunt OS
-built-in auth in the app environment, or let Caddy handle it with `basicauth`
-and a hashed password:
+If the hostname is not private, add authentication. Prefer JobHunt OS built-in
+login auth in the app environment. If you intentionally use proxy-level fallback
+auth instead, Caddy can handle it with `basicauth` and a hashed password:
 
 ```caddyfile
 jobs.example.com {
@@ -67,9 +88,9 @@ to your host's operational policy.
 
 ## Brute-Force Protection
 
-JobHunt OS does not currently include in-process login throttling. For remote
-access, put the brute-force controls at the reverse proxy or host firewall where
-they can see client IPs and block before requests reach the app.
+JobHunt OS includes a small in-process login throttle and temporary lockout. For
+remote access, still put brute-force controls at the reverse proxy or host
+firewall where they can see client IPs and block before requests reach the app.
 
 For Nginx, a small baseline is:
 
@@ -109,7 +130,10 @@ That form can bind the app on all host interfaces. Prefer keeping the app on
 ## Security Note
 
 JobHunt OS is local-first and has no multi-user security model. If you expose it
-to the internet, put it behind HTTPS, require authentication at the proxy or app
-layer, add rate limiting or fail2ban-style blocking for repeated failures, keep
-Docker and the host patched, and verify that the hostname is intended to be
-reachable.
+to the internet, put it behind HTTPS, prefer `JOBHUNT_AUTH_MODE=login`, enable
+secure cookies, add rate limiting or fail2ban-style blocking for repeated
+failures, keep Docker and the host patched, and verify that the hostname is
+intended to be reachable. Deployed non-loopback instances, including
+firblab-v2/GitLab CI deployments, must use login auth. Keep secure cookies off
+for direct plain-HTTP LAN access; turn them on when the app is accessed through
+a trusted HTTPS reverse proxy.
