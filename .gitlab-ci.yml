@@ -46,20 +46,7 @@ variables:
     DOCKER_TLS_CERTDIR: "/certs"
     DOCKER_TLS_VERIFY: "1"
     DOCKER_CERT_PATH: "/certs/client"
-
-.macos-docker-shell:
-  tags:
-    - arm64
-    - macos
-  before_script:
-    - |
-      set +x
-      export PATH="/opt/homebrew/bin:/usr/local/bin:/Applications/Docker.app/Contents/Resources/bin:${PATH}"
-      if ! command -v docker >/dev/null 2>&1; then
-        echo "docker CLI is required on the macOS arm64 runner but was not found on PATH."
-        exit 1
-      fi
-      docker version
+    DOCKER_BUILDKIT: "1"
 
 go:test:
   stage: validate
@@ -118,12 +105,13 @@ docker:publish:amd64:
 
 docker:publish:arm64:
   stage: publish
-  extends: .macos-docker-shell
+  extends: .docker-dind-tls
   needs:
     - job: go:test
     - job: go:govulncheck
     - job: sonarqube:analyze
       optional: true
+  before_script: []
   script:
     - set +x
     - printf '%s' "${CI_REGISTRY_PASSWORD}" | docker login "${CI_REGISTRY}" --username "${CI_REGISTRY_USER}" --password-stdin
@@ -199,7 +187,7 @@ ghcr:publish:amd64:
 
 ghcr:publish:arm64:
   stage: publish
-  extends: .macos-docker-shell
+  extends: .docker-dind-tls
   needs:
     - job: go:test
     - job: go:govulncheck
@@ -207,6 +195,7 @@ ghcr:publish:arm64:
       optional: true
     - job: docker:publish:arm64
       optional: true
+  before_script: []
   script:
     - |
       set +x
