@@ -554,6 +554,7 @@ func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler 
 
 	s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles))))
 	s.mux.HandleFunc("GET /healthz", s.healthz)
+	s.mux.HandleFunc("GET /favicon.ico", s.favicon)
 	s.mux.HandleFunc("GET /login", s.loginGet)
 	s.mux.HandleFunc("POST /login", s.loginPost)
 	s.mux.HandleFunc("POST /logout", s.logoutPost)
@@ -939,6 +940,10 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
+}
+
+func (s *Server) favicon(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/static/jobhunt-os-favicon.svg", http.StatusMovedPermanently)
 }
 
 func (s *Server) loginGet(w http.ResponseWriter, r *http.Request) {

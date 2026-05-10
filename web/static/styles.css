@@ -263,6 +263,18 @@ h3 {
   color: var(--accent-strong);
 }
 
+.brand-logo-link {
+  display: inline-flex;
+  align-items: center;
+  width: min(250px, 52vw);
+}
+
+.brand-logo {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 a {
   color: var(--accent-strong);
 }

@@ -691,7 +691,7 @@ func TestLoginAuthPublicAllowlistIsNarrow(t *testing.T) {
 		"/healthz":           http.StatusOK,
 		"/login":             http.StatusOK,
 		"/static/styles.css": http.StatusOK,
-		"/favicon.ico":       http.StatusNotFound,
+		"/favicon.ico":       http.StatusMovedPermanently,
 	}
 	for target, wantStatus := range publicGETs {
 		target, wantStatus := target, wantStatus
@@ -705,7 +705,12 @@ func TestLoginAuthPublicAllowlistIsNarrow(t *testing.T) {
 			if rec.Code != wantStatus {
 				t.Fatalf("%s status = %d, want %d", target, rec.Code, wantStatus)
 			}
-			if location := rec.Header().Get("Location"); location != "" {
+			location := rec.Header().Get("Location")
+			if target == "/favicon.ico" {
+				if location != "/static/jobhunt-os-favicon.svg" {
+					t.Fatalf("%s Location = %q, want favicon asset", target, location)
+				}
+			} else if location != "" {
 				t.Fatalf("%s Location = %q, want empty", target, location)
 			}
 		})
@@ -2012,7 +2017,8 @@ func TestDocumentsShowEmbedsInlinePDF(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`<a class="brand-link" href="/" aria-label="JobHunt OS dashboard">JobHunt OS</a>`,
+		`<link rel="icon" href="/static/jobhunt-os-favicon.svg" type="image/svg+xml">`,
+		`<a class="brand-link brand-logo-link" href="/" aria-label="JobHunt OS dashboard"><img class="brand-logo" src="/static/jobhunt-os-logo-horizontal.svg" alt="JobHunt OS"></a>`,
 		`src="/documents/doc_1/download"`,
 		`href="/documents/doc_1/download"`,
 		`href="/documents/doc_1/download?download=1"`,

@@ -1,0 +1,52 @@
+<svg width="420" height="130" viewBox="180 20 420 130" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>jobhunt-os</title>
+  <desc>jobhunt-os horizontal logo lockup: dark rounded square icon with teal radar on the left, wordmark stacked to the right</desc>
+
+  <!-- Icon: dark rounded square -->
+  <rect x="190" y="25" width="120" height="120" rx="20" fill="#16161A"/>
+
+  <!-- Sweep sector (teal) -->
+  <path d="M 250,85 L 250,41 A 44,44 0 0,1 288,63 Z" fill="#1D9E75" opacity="0.22"/>
+
+  <!-- Outer ring -->
+  <circle cx="250" cy="85" r="44" fill="none" stroke="#5DCAA5" stroke-width="1" opacity="0.8"/>
+  <!-- Mid ring -->
+  <circle cx="250" cy="85" r="28" fill="none" stroke="#5DCAA5" stroke-width="0.75" opacity="0.48"/>
+  <!-- Inner ring -->
+  <circle cx="250" cy="85" r="14" fill="none" stroke="#5DCAA5" stroke-width="0.75" opacity="0.32"/>
+
+  <!-- Crosshairs -->
+  <line x1="206" y1="85" x2="294" y2="85" stroke="#5DCAA5" stroke-width="0.4" opacity="0.3"/>
+  <line x1="250" y1="41" x2="250" y2="129" stroke="#5DCAA5" stroke-width="0.4" opacity="0.3"/>
+
+  <!-- Sweep line -->
+  <line x1="250" y1="85" x2="288" y2="63" stroke="#5DCAA5" stroke-width="1.1" opacity="0.9"/>
+
+  <!-- Tick marks at cardinal points -->
+  <line x1="250" y1="41" x2="250" y2="48" stroke="#5DCAA5" stroke-width="1.5" opacity="0.7"/>
+  <line x1="294" y1="85" x2="287" y2="85" stroke="#5DCAA5" stroke-width="1.5" opacity="0.7"/>
+  <line x1="250" y1="129" x2="250" y2="122" stroke="#5DCAA5" stroke-width="1.5" opacity="0.7"/>
+  <line x1="206" y1="85" x2="213" y2="85" stroke="#5DCAA5" stroke-width="1.5" opacity="0.7"/>
+
+  <!-- Center dot (amber) -->
+  <circle cx="250" cy="85" r="2.5" fill="#EF9F27"/>
+
+  <!-- Active blip (amber) -->
+  <circle cx="288" cy="63" r="3.5" fill="#EF9F27"/>
+  <circle cx="288" cy="63" r="7.5" fill="none" stroke="#EF9F27" stroke-width="0.75" opacity="0.4"/>
+
+  <!-- Ghost blip 1: mid ring, lower-right -->
+  <circle cx="264" cy="109" r="2.5" fill="#EF9F27" opacity="0.55"/>
+  <!-- Ghost blip 2: outer ring, lower-left -->
+  <circle cx="235" cy="126" r="2.5" fill="#EF9F27" opacity="0.38"/>
+  <!-- Ghost blip 3: inner ring, left -->
+  <circle cx="236" cy="87" r="1.8" fill="#EF9F27" opacity="0.35"/>
+
+  <!-- Wordmark -->
+  <text
+    x="340" y="92"
+    font-family="'Courier New', Courier, monospace"
+    font-size="36"
+    fill="#C4C4BC"
+  >jobhunt-<tspan fill="#EF9F27">os</tspan></text>
+</svg>
