@@ -13,11 +13,18 @@
         <h1><a class="brand-link brand-logo-link" href="/" aria-label="JobHunt OS dashboard"><img class="brand-logo" src="/static/jobhunt-os-logo-horizontal.svg" alt="JobHunt OS"></a></h1>
       </div>
       <div class="topbar-actions">
-        <details class="primary-nav-menu">
+        <nav class="desktop-primary-nav" aria-label="Primary">
+          <a href="/">Dashboard</a>
+          <a href="/applications">Applications</a>
+          <a href="/documents" aria-current="page">Documents</a>
+          <a href="/contacts">Contacts</a>
+          <a href="/settings">Settings</a>
+        </nav>
+        <details class="mobile-primary-nav-menu">
           <summary aria-label="Primary navigation">
             <span class="menu-icon" aria-hidden="true"><span></span><span></span><span></span></span>
           </summary>
-          <nav aria-label="Primary">
+          <nav aria-label="Primary mobile">
             <a href="/">Dashboard</a>
             <a href="/applications">Applications</a>
             <a href="/documents" aria-current="page">Documents</a>
