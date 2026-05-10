@@ -14,7 +14,10 @@ import (
 	"github.com/firblab-blog/jobhunt-os/internal/store"
 )
 
-const sqliteTimestampLayout = "2006-01-02T15:04:05.000Z"
+const (
+	sqliteTimestampLayout      = "2006-01-02T15:04:05.000Z"
+	applicationIDRequiredError = "application id is required"
+)
 
 type Store struct {
 	db *sql.DB
@@ -86,7 +89,7 @@ func (s *Store) CreateApplication(ctx context.Context, app model.Application) (m
 func (s *Store) GetApplication(ctx context.Context, id string) (model.Application, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return model.Application{}, fmt.Errorf("application id is required")
+		return model.Application{}, errors.New(applicationIDRequiredError)
 	}
 
 	app, err := queryApplication(ctx, s.db, selectApplicationByIDSQL, id)
@@ -99,7 +102,7 @@ func (s *Store) GetApplication(ctx context.Context, id string) (model.Applicatio
 func (s *Store) ListApplicationEvents(ctx context.Context, applicationID string) ([]model.ApplicationEvent, error) {
 	applicationID = strings.TrimSpace(applicationID)
 	if applicationID == "" {
-		return nil, fmt.Errorf("application id is required")
+		return nil, errors.New(applicationIDRequiredError)
 	}
 
 	rows, err := s.db.QueryContext(ctx, listApplicationEventsSQL, applicationID)
@@ -127,7 +130,7 @@ func (s *Store) UpdateApplicationStatusAndNextAction(ctx context.Context, id str
 	id = strings.TrimSpace(id)
 	nextAction = normalizeNextAction(nextAction)
 	if id == "" {
-		return model.Application{}, fmt.Errorf("application id is required")
+		return model.Application{}, errors.New(applicationIDRequiredError)
 	}
 	if !status.Valid() {
 		return model.Application{}, fmt.Errorf("status %q is invalid", status)
@@ -186,7 +189,7 @@ func (s *Store) UpdateApplicationPostingURL(ctx context.Context, id string, post
 	id = strings.TrimSpace(id)
 	postingURL = strings.TrimSpace(postingURL)
 	if id == "" {
-		return model.Application{}, fmt.Errorf("application id is required")
+		return model.Application{}, errors.New(applicationIDRequiredError)
 	}
 	if postingURL != "" && !model.ValidHTTPURL(postingURL) {
 		return model.Application{}, fmt.Errorf("posting URL is invalid")
@@ -402,7 +405,7 @@ func validateApplicationForCreate(app model.Application) error {
 		return err
 	}
 	if app.ID == "" {
-		return fmt.Errorf("application id is required")
+		return errors.New(applicationIDRequiredError)
 	}
 	if app.Compensation.Currency != "" && (len(app.Compensation.Currency) != 3 || app.Compensation.Currency != strings.ToUpper(app.Compensation.Currency)) {
 		return fmt.Errorf("compensation currency must be a three-letter uppercase code")
@@ -415,7 +418,7 @@ func validateApplicationEventForCreate(event model.ApplicationEvent) error {
 		return fmt.Errorf("event id is required")
 	}
 	if event.ApplicationID == "" {
-		return fmt.Errorf("application id is required")
+		return errors.New(applicationIDRequiredError)
 	}
 	if !event.EventType.Valid() {
 		return fmt.Errorf("event type %q is invalid", event.EventType)

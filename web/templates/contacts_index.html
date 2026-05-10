@@ -92,18 +92,18 @@
             <div class="support-form-fields">
               <label>
                 <span>Name</span>
-                <input name="name" value="{{ .Values.Name }}" autocomplete="name" required{{ with .Errors.Get "name" }} aria-invalid="true" aria-describedby="contact-name-error"{{ end }}>
+                <input name="name" type="text" value="{{ .Values.Name }}" autocomplete="name" required{{ with .Errors.Get "name" }} aria-invalid="true" aria-describedby="contact-name-error"{{ end }}>
                 {{ with .Errors.Get "name" }}<strong id="contact-name-error">{{ . }}</strong>{{ end }}
               </label>
 
               <label>
                 <span>Organization</span>
-                <input name="organization" value="{{ .Values.Organization }}" autocomplete="organization">
+                <input name="organization" type="text" value="{{ .Values.Organization }}" autocomplete="organization">
               </label>
 
               <label>
                 <span>Role</span>
-                <input name="role" value="{{ .Values.Role }}" autocomplete="organization-title">
+                <input name="role" type="text" value="{{ .Values.Role }}" autocomplete="organization-title">
               </label>
 
               <label>
@@ -113,12 +113,12 @@
 
               <label>
                 <span>Phone</span>
-                <input name="phone" value="{{ .Values.Phone }}" autocomplete="tel">
+                <input name="phone" type="tel" value="{{ .Values.Phone }}" autocomplete="tel">
               </label>
 
               <label>
                 <span>Location</span>
-                <input name="location" value="{{ .Values.Location }}" autocomplete="address-level2">
+                <input name="location" type="text" value="{{ .Values.Location }}" autocomplete="address-level2">
               </label>
 
               <label>

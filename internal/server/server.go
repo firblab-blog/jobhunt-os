@@ -35,47 +35,63 @@ import (
 )
 
 const (
-	maxPostingPDFBytes           int64 = 20 << 20
-	maxPostingMultipartBytes     int64 = maxPostingPDFBytes + (2 << 20)
-	staleActiveDays                    = 7
-	themeCookieName                    = "jobhunt_theme"
-	themeCookieMaxAge                  = 60 * 60 * 24 * 365
-	themeSystem                        = "system"
-	themeLight                         = "light"
-	themeDark                          = "dark"
-	authModeDisabled                   = "disabled"
-	authModeLogin                      = "login"
-	authModeBasic                      = "basic"
-	sessionCookieName                  = "jobhunt_session"
-	hostSessionCookieName              = "__Host-jobhunt_session"
-	loginErrorMessage                  = "Invalid username or password."
-	noStoreCacheControl                = "no-store"
-	staticPathPrefix                   = "/static/"
-	healthzPath                        = "/healthz"
-	faviconPath                        = "/favicon.ico"
-	loginPath                          = "/login"
-	logoutPath                         = "/logout"
-	themePath                          = "/theme"
-	faviconAssetPath                   = staticPathPrefix + "jobhunt-os-favicon.svg"
-	exportFilename                     = "jobhunt-os-export.json"
-	routeGETStatic                     = "GET " + staticPathPrefix
-	routeGETHealthz                    = "GET " + healthzPath
-	routeGETFavicon                    = "GET " + faviconPath
-	routeGETLogin                      = "GET " + loginPath
-	routePOSTLogin                     = "POST " + loginPath
-	routePOSTLogout                    = "POST " + logoutPath
-	routeGETTheme                      = "GET " + themePath
-	appStoreNotConfiguredMessage       = "application store is not configured"
-	documentStorageNotConfigured       = "Document storage is not configured."
-	formBodyTooLargeMessage            = "form body too large"
-	invalidFormBodyMessage             = "invalid form body"
-	invalidCSRFTokenMessage            = "invalid CSRF token"
-	postingPDFFieldName                = "posting_pdf"
-	postingURLFieldName                = "posting_url"
-	postingURLValidationMessage        = "Original link must be a valid HTTP or HTTPS URL."
-	appCSP                             = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'self'; frame-ancestors 'none'; form-action 'self'"
-	documentPreviewCSP                 = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'self'"
-	documentDownloadCSP                = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'"
+	maxPostingPDFBytes            int64 = 20 << 20
+	maxPostingMultipartBytes      int64 = maxPostingPDFBytes + (2 << 20)
+	staleActiveDays                     = 7
+	themeCookieName                     = "jobhunt_theme"
+	themeCookieMaxAge                   = 60 * 60 * 24 * 365
+	themeSystem                         = "system"
+	themeLight                          = "light"
+	themeDark                           = "dark"
+	authModeDisabled                    = "disabled"
+	authModeLogin                       = "login"
+	authModeBasic                       = "basic"
+	sessionCookieName                   = "jobhunt_session"
+	hostSessionCookieName               = "__Host-jobhunt_session"
+	loginErrorMessage                   = "Invalid username or password."
+	noStoreCacheControl                 = "no-store"
+	contentTypeHeader                   = "Content-Type"
+	contentTypeTextPlain                = "text/plain; charset=utf-8"
+	contentTypeHTML                     = "text/html; charset=utf-8"
+	contentTypeJSON                     = "application/json; charset=utf-8"
+	contentTypePDF                      = "application/pdf"
+	staticPathPrefix                    = "/static/"
+	applicationsPath                    = "/applications"
+	documentsPath                       = "/documents"
+	applicationsNextActionsPath         = applicationsPath + "#next-actions"
+	applicationsInterviewingPath        = applicationsPath + "?status=interviewing"
+	applicationsStatusQueryPrefix       = applicationsPath + "?status="
+	healthzPath                         = "/healthz"
+	faviconPath                         = "/favicon.ico"
+	loginPath                           = "/login"
+	logoutPath                          = "/logout"
+	themePath                           = "/theme"
+	faviconAssetPath                    = staticPathPrefix + "jobhunt-os-favicon.svg"
+	exportFilename                      = "jobhunt-os-export.json"
+	routeGETStatic                      = "GET " + staticPathPrefix
+	routeGETHealthz                     = "GET " + healthzPath
+	routeGETFavicon                     = "GET " + faviconPath
+	routeGETLogin                       = "GET " + loginPath
+	routePOSTLogin                      = "POST " + loginPath
+	routePOSTLogout                     = "POST " + logoutPath
+	routeGETTheme                       = "GET " + themePath
+	appStoreNotConfiguredMessage        = "application store is not configured"
+	documentStorageNotConfigured        = "Document storage is not configured."
+	formBodyTooLargeMessage             = "form body too large"
+	invalidFormBodyMessage              = "invalid form body"
+	invalidCSRFTokenMessage             = "invalid CSRF token"
+	postingPDFFieldName                 = "posting_pdf"
+	postingURLFieldName                 = "posting_url"
+	postingURLValidationMessage         = "Original link must be a valid HTTP or HTTPS URL."
+	appCSP                              = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'self'; frame-ancestors 'none'; form-action 'self'"
+	documentPreviewCSP                  = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'self'"
+	documentDownloadCSP                 = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'"
+	activeApplicationsLabel             = "Active applications"
+	interviewLoopsLabel                 = "Interview loops"
+	readyWhenYouAreLabel                = "Ready when you are"
+	dueTodayLabel                       = "Due today"
+	prepSystemDesignNotes               = "Prep system design notes"
+	tailorCoverLetterAction             = "Tailor cover letter"
 )
 
 type Server struct {
@@ -419,6 +435,16 @@ type postingFormData struct {
 	Errors formErrors
 }
 
+type applicationDetailRenderData struct {
+	Application model.Application
+	Events      []model.ApplicationEvent
+	Documents   []model.ApplicationDocument
+	EventForm   applicationEventFormData
+	StatusForm  applicationStatusFormData
+	PostingForm postingFormData
+	Status      int
+}
+
 type postingFormValues struct {
 	PostingURL string
 }
@@ -583,17 +609,17 @@ func NewWithOptions(appStore store.ApplicationStore, opts Options) http.Handler 
 	s.mux.HandleFunc(routePOSTLogout, s.logoutPost)
 	s.mux.HandleFunc(routeGETTheme, s.themeUpdate)
 	s.mux.HandleFunc("GET /{$}", s.home)
-	s.mux.HandleFunc("GET /applications", s.applicationsIndex)
-	s.mux.HandleFunc("GET /applications/new", s.applicationsNew)
-	s.mux.HandleFunc("POST /applications", s.applicationsCreate)
-	s.mux.HandleFunc("POST /applications/{id}/events", s.applicationsAddEvent)
-	s.mux.HandleFunc("POST /applications/{id}/status", s.applicationsUpdateStatus)
-	s.mux.HandleFunc("POST /applications/{id}/documents", s.applicationsUpdatePosting)
-	s.mux.HandleFunc("GET /applications/{id}", s.applicationsShow)
-	s.mux.HandleFunc("GET /documents", s.documentsIndex)
-	s.mux.HandleFunc("POST /documents", s.documentsCreate)
-	s.mux.HandleFunc("GET /documents/{id}", s.documentsShow)
-	s.mux.HandleFunc("GET /documents/{id}/download", s.documentsDownload)
+	s.mux.HandleFunc("GET "+applicationsPath, s.applicationsIndex)
+	s.mux.HandleFunc("GET "+applicationsPath+"/new", s.applicationsNew)
+	s.mux.HandleFunc("POST "+applicationsPath, s.applicationsCreate)
+	s.mux.HandleFunc("POST "+applicationsPath+"/{id}/events", s.applicationsAddEvent)
+	s.mux.HandleFunc("POST "+applicationsPath+"/{id}/status", s.applicationsUpdateStatus)
+	s.mux.HandleFunc("POST "+applicationsPath+"/{id}/documents", s.applicationsUpdatePosting)
+	s.mux.HandleFunc("GET "+applicationsPath+"/{id}", s.applicationsShow)
+	s.mux.HandleFunc("GET "+documentsPath, s.documentsIndex)
+	s.mux.HandleFunc("POST "+documentsPath, s.documentsCreate)
+	s.mux.HandleFunc("GET "+documentsPath+"/{id}", s.documentsShow)
+	s.mux.HandleFunc("GET "+documentsPath+"/{id}/download", s.documentsDownload)
 	s.mux.HandleFunc("GET /contacts", s.contactsIndex)
 	s.mux.HandleFunc("POST /contacts", s.contactsCreate)
 	s.mux.HandleFunc("GET /follow-ups", s.followUpsRedirect)
@@ -960,7 +986,7 @@ func (s *Server) clearSessionCookies(w http.ResponseWriter) {
 }
 
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set(contentTypeHeader, contentTypeTextPlain)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
 }
@@ -1201,26 +1227,9 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 		return fallbackDashboardData()
 	}
 
-	active := 0
-	needFollowUp := 0
-	interviews := 0
 	now := time.Now()
-	nextActionApps := make([]model.Application, 0)
-
-	for _, app := range applications {
-		if isActiveStatus(app.Status) {
-			active++
-		}
-		if app.Status == model.StatusInterviewing {
-			interviews++
-		}
-		if app.NextAction.Summary != "" {
-			if app.NextAction.Due == nil || !app.NextAction.Due.After(endOfDay(now)) {
-				needFollowUp++
-				nextActionApps = append(nextActionApps, app)
-			}
-		}
-	}
+	summary := dashboardActivitySummaryFor(applications, now)
+	nextActionApps := summary.NextActionApplications
 	sort.SliceStable(nextActionApps, func(i, j int) bool {
 		return dashboardNextActionLess(nextActionApps[i], nextActionApps[j], now)
 	})
@@ -1248,12 +1257,7 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 	pulse := dashboardPipelinePulseFor(applications, stats, documentCount)
 
 	return dashboardData{
-		Metrics: []dashboardMetric{
-			{Label: "Active applications", Value: itoa(active), Action: "Work the queue", Href: "/applications"},
-			{Label: "Need follow-up", Value: itoa(needFollowUp), Action: "Clear today", Href: "/applications#next-actions"},
-			{Label: "Interview loops", Value: itoa(interviews), Action: "Prep next", Href: "/applications?status=interviewing"},
-			{Label: "Documents", Value: itoa(documentCount), Action: "Review library", Href: "/documents"},
-		},
+		Metrics:       dashboardMetrics(summary, documentCount),
 		Applications:  items,
 		NextActions:   nextActions,
 		PipelinePulse: pulse,
@@ -1261,13 +1265,49 @@ func (s *Server) dashboard(r *http.Request) dashboardData {
 	}
 }
 
+type dashboardActivitySummary struct {
+	ActiveApplications     int
+	NeedFollowUp           int
+	InterviewLoops         int
+	NextActionApplications []model.Application
+}
+
+func dashboardActivitySummaryFor(applications []model.Application, now time.Time) dashboardActivitySummary {
+	summary := dashboardActivitySummary{
+		NextActionApplications: make([]model.Application, 0),
+	}
+	for _, app := range applications {
+		if isActiveStatus(app.Status) {
+			summary.ActiveApplications++
+		}
+		if app.Status == model.StatusInterviewing {
+			summary.InterviewLoops++
+		}
+		if app.NextAction.Summary == "" || app.NextAction.Due != nil && app.NextAction.Due.After(endOfDay(now)) {
+			continue
+		}
+		summary.NeedFollowUp++
+		summary.NextActionApplications = append(summary.NextActionApplications, app)
+	}
+	return summary
+}
+
+func dashboardMetrics(summary dashboardActivitySummary, documentCount int) []dashboardMetric {
+	return []dashboardMetric{
+		{Label: activeApplicationsLabel, Value: itoa(summary.ActiveApplications), Action: "Work the queue", Href: applicationsPath},
+		{Label: "Need follow-up", Value: itoa(summary.NeedFollowUp), Action: "Clear today", Href: applicationsNextActionsPath},
+		{Label: interviewLoopsLabel, Value: itoa(summary.InterviewLoops), Action: "Prep next", Href: applicationsInterviewingPath},
+		{Label: "Documents", Value: itoa(documentCount), Action: "Review library", Href: documentsPath},
+	}
+}
+
 func fallbackDashboardData() dashboardData {
 	return dashboardData{
 		Metrics: []dashboardMetric{
-			{Label: "Active applications", Value: "12", Action: "Work the queue", Href: "/applications"},
-			{Label: "Need follow-up", Value: "3", Action: "Clear today", Href: "/applications#next-actions"},
-			{Label: "Interview loops", Value: "2", Action: "Prep next", Href: "/applications?status=interviewing"},
-			{Label: "Documents", Value: "5", Action: "Review library", Href: "/documents"},
+			{Label: activeApplicationsLabel, Value: "12", Action: "Work the queue", Href: applicationsPath},
+			{Label: "Need follow-up", Value: "3", Action: "Clear today", Href: applicationsNextActionsPath},
+			{Label: interviewLoopsLabel, Value: "2", Action: "Prep next", Href: applicationsInterviewingPath},
+			{Label: "Documents", Value: "5", Action: "Review library", Href: documentsPath},
 		},
 		Applications: []dashboardApplication{
 			{
@@ -1275,14 +1315,14 @@ func fallbackDashboardData() dashboardData {
 					Company:    "Northstar Systems",
 					Role:       "Senior Platform Engineer",
 					Status:     model.StatusInterviewing,
-					NextAction: model.NextAction{Summary: "Prep system design notes"},
+					NextAction: model.NextAction{Summary: prepSystemDesignNotes},
 				},
 				Status:        "Interviewing",
 				StatusKey:     "interviewing",
 				PriorityLabel: "High",
 				Updated:       "Today",
-				QueueLabel:    "Due today",
-				ActionText:    "Prep system design notes",
+				QueueLabel:    dueTodayLabel,
+				ActionText:    prepSystemDesignNotes,
 			},
 			{
 				Application: model.Application{
@@ -1295,7 +1335,7 @@ func fallbackDashboardData() dashboardData {
 				StatusKey:     "applied",
 				PriorityLabel: "Normal",
 				Updated:       "Yesterday",
-				QueueLabel:    "Ready when you are",
+				QueueLabel:    readyWhenYouAreLabel,
 				ActionText:    "Follow up with recruiter",
 			},
 			{
@@ -1303,23 +1343,23 @@ func fallbackDashboardData() dashboardData {
 					Company:    "Signal Works",
 					Role:       "Infrastructure Lead",
 					Status:     model.StatusProspect,
-					NextAction: model.NextAction{Summary: "Tailor cover letter"},
+					NextAction: model.NextAction{Summary: tailorCoverLetterAction},
 				},
 				Status:        "Prospect",
 				StatusKey:     "prospect",
 				PriorityLabel: "High",
 				Updated:       "Apr 30",
 				QueueLabel:    "High priority",
-				ActionText:    "Tailor cover letter",
+				ActionText:    tailorCoverLetterAction,
 			},
 		},
 		NextActions: []dashboardNextAction{
-			{Text: "Prep system design notes for Northstar Systems.", Meta: "Interviewing", State: "Due today"},
-			{Text: "Send recruiter follow-up for Atlas Cloud.", Meta: "Applied", State: "Ready when you are"},
+			{Text: prepSystemDesignNotes + " for Northstar Systems.", Meta: "Interviewing", State: dueTodayLabel},
+			{Text: "Send recruiter follow-up for Atlas Cloud.", Meta: "Applied", State: readyWhenYouAreLabel},
 			{Text: "Attach tailored cover letter to Signal Works draft.", Meta: "Prospect", State: "High priority"},
 		},
 		PipelinePulse: dashboardPipelinePulseFor([]model.Application{
-			{Status: model.StatusProspect, NextAction: model.NextAction{Summary: "Tailor cover letter"}},
+			{Status: model.StatusProspect, NextAction: model.NextAction{Summary: tailorCoverLetterAction}},
 			{Status: model.StatusProspect, NextAction: model.NextAction{Summary: "Find hiring manager"}},
 			{Status: model.StatusProspect},
 			{Status: model.StatusProspect},
@@ -1328,7 +1368,7 @@ func fallbackDashboardData() dashboardData {
 			{Status: model.StatusApplied, NextAction: model.NextAction{Summary: "Check portal"}},
 			{Status: model.StatusApplied, NextAction: model.NextAction{Summary: "Ask referral"}},
 			{Status: model.StatusApplied, NextAction: model.NextAction{Summary: "Refresh notes"}},
-			{Status: model.StatusInterviewing, NextAction: model.NextAction{Summary: "Prep system design notes"}},
+			{Status: model.StatusInterviewing, NextAction: model.NextAction{Summary: prepSystemDesignNotes}},
 			{Status: model.StatusInterviewing, NextAction: model.NextAction{Summary: "Prep behavioral notes"}},
 			{Status: model.StatusOffer},
 			{Status: model.StatusRejected},
@@ -1349,15 +1389,15 @@ func fallbackDashboardData() dashboardData {
 		}, 5),
 		Stats: dashboardStats{
 			PipelineCounts: []dashboardStatCount{
-				{Key: string(model.StatusProspect), Label: "Prospect", Count: 4, Href: "/applications?status=prospect"},
-				{Key: string(model.StatusApplied), Label: "Applied", Count: 5, Href: "/applications?status=applied"},
-				{Key: string(model.StatusInterviewing), Label: "Interviewing", Count: 2, Href: "/applications?status=interviewing"},
-				{Key: string(model.StatusOffer), Label: "Offer", Count: 1, Href: "/applications?status=offer"},
-				{Key: string(model.StatusAccepted), Label: "Accepted", Count: 0, Href: "/applications?status=accepted"},
-				{Key: string(model.StatusDeclined), Label: "Declined", Count: 0, Href: "/applications?status=declined"},
-				{Key: string(model.StatusRejected), Label: "Rejected", Count: 3, Href: "/applications?status=rejected"},
-				{Key: string(model.StatusWithdrawn), Label: "Withdrawn", Count: 1, Href: "/applications?status=withdrawn"},
-				{Key: string(model.StatusArchived), Label: "Archived", Count: 0, Href: "/applications?status=archived"},
+				{Key: string(model.StatusProspect), Label: "Prospect", Count: 4, Href: applicationsStatusQueryPrefix + "prospect"},
+				{Key: string(model.StatusApplied), Label: "Applied", Count: 5, Href: applicationsStatusQueryPrefix + "applied"},
+				{Key: string(model.StatusInterviewing), Label: "Interviewing", Count: 2, Href: applicationsInterviewingPath},
+				{Key: string(model.StatusOffer), Label: "Offer", Count: 1, Href: applicationsStatusQueryPrefix + "offer"},
+				{Key: string(model.StatusAccepted), Label: "Accepted", Count: 0, Href: applicationsStatusQueryPrefix + "accepted"},
+				{Key: string(model.StatusDeclined), Label: "Declined", Count: 0, Href: applicationsStatusQueryPrefix + "declined"},
+				{Key: string(model.StatusRejected), Label: "Rejected", Count: 3, Href: applicationsStatusQueryPrefix + "rejected"},
+				{Key: string(model.StatusWithdrawn), Label: "Withdrawn", Count: 1, Href: applicationsStatusQueryPrefix + "withdrawn"},
+				{Key: string(model.StatusArchived), Label: "Archived", Count: 0, Href: applicationsStatusQueryPrefix + "archived"},
 			},
 			FollowUpHealth: dashboardFollowUpHealth{
 				Overdue:      1,
@@ -1448,7 +1488,7 @@ func dashboardPipelineCounts(applications []model.Application) []dashboardStatCo
 			Key:   option.Value,
 			Label: option.Label,
 			Count: counts[status],
-			Href:  "/applications?status=" + option.Value,
+			Href:  applicationsStatusQueryPrefix + option.Value,
 		})
 	}
 	return items
@@ -1557,7 +1597,7 @@ func dashboardPipelinePulseGroups(applications []model.Application) []dashboardP
 				Key:   string(status),
 				Label: statusLabel(status),
 				Count: count,
-				Href:  "/applications?status=" + string(status),
+				Href:  applicationsStatusQueryPrefix + string(status),
 			})
 		}
 
@@ -1565,7 +1605,7 @@ func dashboardPipelinePulseGroups(applications []model.Application) []dashboardP
 			Key:      definition.key,
 			Label:    definition.label,
 			Count:    groupCount,
-			Share:    dashboardPulseShare(groupCount, len(applications)),
+			Share:    percentageShare(groupCount, len(applications)),
 			Href:     definition.href,
 			Closed:   definition.closed,
 			Statuses: statuses,
@@ -1587,37 +1627,37 @@ func dashboardPipelinePulseGroupDefinitions() []dashboardPipelinePulseGroupDefin
 		{
 			key:      string(model.StatusProspect),
 			label:    "Prospect",
-			href:     "/applications?status=" + string(model.StatusProspect),
+			href:     applicationsStatusQueryPrefix + string(model.StatusProspect),
 			statuses: []model.ApplicationStatus{model.StatusProspect},
 		},
 		{
 			key:      string(model.StatusApplied),
 			label:    "Applied",
-			href:     "/applications?status=" + string(model.StatusApplied),
+			href:     applicationsStatusQueryPrefix + string(model.StatusApplied),
 			statuses: []model.ApplicationStatus{model.StatusApplied},
 		},
 		{
 			key:      string(model.StatusInterviewing),
 			label:    "Interviewing",
-			href:     "/applications?status=" + string(model.StatusInterviewing),
+			href:     applicationsStatusQueryPrefix + string(model.StatusInterviewing),
 			statuses: []model.ApplicationStatus{model.StatusInterviewing},
 		},
 		{
 			key:      string(model.StatusOffer),
 			label:    "Offer",
-			href:     "/applications?status=" + string(model.StatusOffer),
+			href:     applicationsStatusQueryPrefix + string(model.StatusOffer),
 			statuses: []model.ApplicationStatus{model.StatusOffer},
 		},
 		{
 			key:      string(model.StatusAccepted),
 			label:    "Accepted",
-			href:     "/applications?status=" + string(model.StatusAccepted),
+			href:     applicationsStatusQueryPrefix + string(model.StatusAccepted),
 			statuses: []model.ApplicationStatus{model.StatusAccepted},
 		},
 		{
 			key:    "closed",
 			label:  "Closed",
-			href:   "/applications?status=" + closedApplicationStatusFilter,
+			href:   applicationsStatusQueryPrefix + closedApplicationStatusFilter,
 			closed: true,
 			statuses: []model.ApplicationStatus{
 				model.StatusDeclined,
@@ -1631,12 +1671,12 @@ func dashboardPipelinePulseGroupDefinitions() []dashboardPipelinePulseGroupDefin
 
 func dashboardPipelinePulseSignals(stats dashboardStats, documentCount int, dueFollowUps int, interviewLoops int) []dashboardPipelinePulseSignal {
 	return []dashboardPipelinePulseSignal{
-		{Key: "active_applications", Label: "Active applications", Count: stats.ActiveApplications, Href: "/applications"},
-		{Key: "due_follow_ups", Label: "Due follow-ups", Count: dueFollowUps, Href: "/applications#next-actions"},
-		{Key: "interview_loops", Label: "Interview loops", Count: interviewLoops, Href: "/applications?status=interviewing"},
-		{Key: "documents", Label: "Documents", Count: documentCount, Href: "/documents"},
-		{Key: "stale_opportunities", Label: "Stale opportunities", Count: stats.StaleActiveApplications, Href: "/applications"},
-		{Key: "no_next_action", Label: "No next action", Count: stats.FollowUpHealth.NoNextAction, Href: "/applications"},
+		{Key: "active_applications", Label: activeApplicationsLabel, Count: stats.ActiveApplications, Href: applicationsPath},
+		{Key: "due_follow_ups", Label: "Due follow-ups", Count: dueFollowUps, Href: applicationsNextActionsPath},
+		{Key: "interview_loops", Label: interviewLoopsLabel, Count: interviewLoops, Href: applicationsInterviewingPath},
+		{Key: "documents", Label: "Documents", Count: documentCount, Href: documentsPath},
+		{Key: "stale_opportunities", Label: "Stale opportunities", Count: stats.StaleActiveApplications, Href: applicationsPath},
+		{Key: "no_next_action", Label: "No next action", Count: stats.FollowUpHealth.NoNextAction, Href: applicationsPath},
 	}
 }
 
@@ -1649,7 +1689,7 @@ func dashboardPipelinePulseGroupCount(groups []dashboardPipelinePulseGroup, key 
 	return 0
 }
 
-func dashboardPulseShare(count int, total int) int {
+func percentageShare(count int, total int) int {
 	if total <= 0 || count <= 0 {
 		return 0
 	}
@@ -1773,13 +1813,13 @@ func nextActionMeta(app model.Application, now time.Time) string {
 
 func nextActionState(due *time.Time, now time.Time) string {
 	if due == nil || due.IsZero() {
-		return "Ready when you are"
+		return readyWhenYouAreLabel
 	}
 	if due.Before(startOfDay(now)) {
 		return "Overdue"
 	}
 	if !due.After(endOfDay(now)) {
-		return "Due today"
+		return dueTodayLabel
 	}
 	return "Due " + due.Format("Jan 2")
 }
@@ -1788,7 +1828,7 @@ func applicationHref(app model.Application) string {
 	if app.ID == "" {
 		return ""
 	}
-	return "/applications/" + app.ID
+	return applicationsPath + "/" + app.ID
 }
 
 func (s *Server) applicationsIndex(w http.ResponseWriter, r *http.Request) {
@@ -1863,7 +1903,7 @@ func applicationsFlowFor(applications []model.Application) applicationsFlowData 
 				Key:   string(status),
 				Label: statusLabel(status),
 				Count: count,
-				Share: applicationsFlowShare(count, totalApplications),
+				Share: percentageShare(count, totalApplications),
 				Href:  applicationsStatusFilterHref(status),
 			}
 			statuses = append(statuses, statusItem)
@@ -1879,7 +1919,7 @@ func applicationsFlowFor(applications []model.Application) applicationsFlowData 
 			Key:      definition.key,
 			Label:    definition.label,
 			Count:    stageCount,
-			Share:    applicationsFlowShare(stageCount, totalApplications),
+			Share:    percentageShare(stageCount, totalApplications),
 			Href:     definition.href,
 			Closed:   definition.closed,
 			Terminal: definition.terminal,
@@ -1903,7 +1943,15 @@ func applicationsSankeyFor(stages []applicationsFlowStage, closedStatuses []appl
 		nodeWidth = 9
 	)
 	nodes := []applicationsSankeyNode{
-		applicationsSankeyNodeFor("tracked", "Tracked", total, "/applications", 24, 86, applicationsSankeyRootHeight(total), false, false),
+		applicationsSankeyNodeFor(applicationsSankeyNodeInput{
+			key:    "tracked",
+			label:  "Tracked",
+			count:  total,
+			href:   applicationsPath,
+			x:      24,
+			y:      86,
+			height: applicationsSankeyRootHeight(total),
+		}),
 	}
 	links := make([]applicationsSankeyLink, 0, len(stages)+len(closedStatuses))
 
@@ -1937,20 +1985,30 @@ func applicationsSankeyFor(stages []applicationsFlowStage, closedStatuses []appl
 		if !ok {
 			continue
 		}
-		node := applicationsSankeyNodeFor(stage.Key, stage.Label, stage.Count, stage.Href, position[0], position[1], applicationsSankeyNodeHeight(stage.Count, total), stage.Terminal, stage.Closed)
+		node := applicationsSankeyNodeFor(applicationsSankeyNodeInput{
+			key:      stage.Key,
+			label:    stage.Label,
+			count:    stage.Count,
+			href:     stage.Href,
+			x:        position[0],
+			y:        position[1],
+			height:   applicationsSankeyNodeHeight(stage.Count, total),
+			terminal: stage.Terminal,
+			closed:   stage.Closed,
+		})
 		nodes = append(nodes, node)
 		if stage.Count > 0 {
-			links = append(links, applicationsSankeyLinkFor(
-				"tracked-"+stage.Key,
-				"Tracked to "+stage.Label,
-				stage.Count,
-				stage.Href,
-				root.X+nodeWidth,
-				rootExitY[stage.Key],
-				node.X,
-				node.Y+node.Height/2,
-				total,
-			))
+			links = append(links, applicationsSankeyLinkFor(applicationsSankeyLinkInput{
+				key:   "tracked-" + stage.Key,
+				label: "Tracked to " + stage.Label,
+				count: stage.Count,
+				href:  stage.Href,
+				x1:    root.X + nodeWidth,
+				y1:    rootExitY[stage.Key],
+				x2:    node.X,
+				y2:    node.Y + node.Height/2,
+				total: total,
+			}))
 		}
 	}
 
@@ -1961,20 +2019,30 @@ func applicationsSankeyFor(stages []applicationsFlowStage, closedStatuses []appl
 			if !ok {
 				continue
 			}
-			node := applicationsSankeyNodeFor(status.Key, status.Label, status.Count, status.Href, position[0], position[1], applicationsSankeyOutcomeHeight(status.Count, total), true, true)
+			node := applicationsSankeyNodeFor(applicationsSankeyNodeInput{
+				key:      status.Key,
+				label:    status.Label,
+				count:    status.Count,
+				href:     status.Href,
+				x:        position[0],
+				y:        position[1],
+				height:   applicationsSankeyOutcomeHeight(status.Count, total),
+				terminal: true,
+				closed:   true,
+			})
 			nodes = append(nodes, node)
 			if status.Count > 0 {
-				links = append(links, applicationsSankeyLinkFor(
-					"closed-"+status.Key,
-					"Closed to "+status.Label,
-					status.Count,
-					status.Href,
-					closedNode.X+nodeWidth,
-					closedNode.Y+closedNode.Height/2,
-					node.X,
-					node.Y+node.Height/2,
-					total,
-				))
+				links = append(links, applicationsSankeyLinkFor(applicationsSankeyLinkInput{
+					key:   "closed-" + status.Key,
+					label: "Closed to " + status.Label,
+					count: status.Count,
+					href:  status.Href,
+					x1:    closedNode.X + nodeWidth,
+					y1:    closedNode.Y + closedNode.Height/2,
+					x2:    node.X,
+					y2:    node.Y + node.Height/2,
+					total: total,
+				}))
 			}
 		}
 	}
@@ -1986,41 +2054,75 @@ func applicationsSankeyFor(stages []applicationsFlowStage, closedStatuses []appl
 	}
 }
 
-func applicationsSankeyNodeFor(key string, label string, count int, href string, x int, y int, height int, terminal bool, closed bool) applicationsSankeyNode {
+type applicationsSankeyNodeInput struct {
+	key      string
+	label    string
+	count    int
+	href     string
+	x        int
+	y        int
+	height   int
+	terminal bool
+	closed   bool
+}
+
+func applicationsSankeyNodeFor(input applicationsSankeyNodeInput) applicationsSankeyNode {
 	anchor := "start"
-	textX := x + 16
-	if x >= 1036 {
+	textX := input.x + 16
+	if input.x >= 1036 {
 		anchor = "end"
-		textX = x - 12
+		textX = input.x - 12
 	}
 	return applicationsSankeyNode{
-		Key:      key,
-		Label:    label,
-		Count:    count,
-		Href:     href,
-		X:        x,
-		Y:        y,
-		Height:   height,
+		Key:      input.key,
+		Label:    input.label,
+		Count:    input.count,
+		Href:     input.href,
+		X:        input.x,
+		Y:        input.y,
+		Height:   input.height,
 		TextX:    textX,
-		TextY:    y + height/2 - 8,
+		TextY:    input.y + input.height/2 - 8,
 		Anchor:   anchor,
-		Terminal: terminal,
-		Closed:   closed,
+		Terminal: input.terminal,
+		Closed:   input.closed,
 	}
 }
 
-func applicationsSankeyLinkFor(key string, label string, count int, href string, x1 int, y1 int, x2 int, y2 int, total int) applicationsSankeyLink {
-	control := (x2 - x1) / 2
+type applicationsSankeyLinkInput struct {
+	key   string
+	label string
+	count int
+	href  string
+	x1    int
+	y1    int
+	x2    int
+	y2    int
+	total int
+}
+
+func applicationsSankeyLinkFor(input applicationsSankeyLinkInput) applicationsSankeyLink {
+	control := (input.x2 - input.x1) / 2
 	if control < 70 {
 		control = 70
 	}
 	return applicationsSankeyLink{
-		Key:   key,
-		Label: label,
-		Count: count,
-		Href:  href,
-		Path:  fmt.Sprintf("M %d %d C %d %d, %d %d, %d %d", x1, y1, x1+control, y1, x2-control, y2, x2, y2),
-		Width: applicationsSankeyLinkWidth(count, total),
+		Key:   input.key,
+		Label: input.label,
+		Count: input.count,
+		Href:  input.href,
+		Path: fmt.Sprintf(
+			"M %d %d C %d %d, %d %d, %d %d",
+			input.x1,
+			input.y1,
+			input.x1+control,
+			input.y1,
+			input.x2-control,
+			input.y2,
+			input.x2,
+			input.y2,
+		),
+		Width: applicationsSankeyLinkWidth(input.count, input.total),
 	}
 }
 
@@ -2118,7 +2220,7 @@ func applicationsFlowStageDefinitions() []applicationsFlowStageDefinition {
 		{
 			key:    "closed",
 			label:  "Closed",
-			href:   "/applications?status=" + closedApplicationStatusFilter,
+			href:   applicationsStatusQueryPrefix + closedApplicationStatusFilter,
 			closed: true,
 			statuses: []model.ApplicationStatus{
 				model.StatusDeclined,
@@ -2131,14 +2233,7 @@ func applicationsFlowStageDefinitions() []applicationsFlowStageDefinition {
 }
 
 func applicationsStatusFilterHref(status model.ApplicationStatus) string {
-	return "/applications?status=" + string(status)
-}
-
-func applicationsFlowShare(count int, total int) int {
-	if total <= 0 || count <= 0 {
-		return 0
-	}
-	return (count*100 + total/2) / total
+	return applicationsStatusQueryPrefix + string(status)
 }
 
 func (s *Server) documentsIndex(w http.ResponseWriter, r *http.Request) {
@@ -2195,7 +2290,7 @@ func (s *Server) documentsCreate(w http.ResponseWriter, r *http.Request) {
 			form.errors.Add("form", "Could not save document. Please check the fields and try again.")
 			slog.Error("create document", "error", err)
 		} else {
-			http.Redirect(w, r, "/documents", http.StatusSeeOther)
+			http.Redirect(w, r, documentsPath, http.StatusSeeOther)
 			return
 		}
 	}
@@ -2272,7 +2367,7 @@ func (s *Server) documentsDownload(w http.ResponseWriter, r *http.Request) {
 		frameOptions = "DENY"
 	}
 
-	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set(contentTypeHeader, contentTypePDF)
 	w.Header().Set("Content-Disposition", disposition+`; filename="`+downloadFileName(document.Name)+`.pdf"`)
 	setNoStore(w.Header())
 	w.Header().Set("Content-Security-Policy", documentCSP)
@@ -2333,7 +2428,7 @@ func (s *Server) contactsCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) followUpsRedirect(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/applications#next-actions", http.StatusSeeOther)
+	http.Redirect(w, r, applicationsNextActionsPath, http.StatusSeeOther)
 }
 
 func (s *Server) settingsIndex(w http.ResponseWriter, r *http.Request) {
@@ -2356,7 +2451,7 @@ func (s *Server) exportJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set(contentTypeHeader, contentTypeJSON)
 	w.Header().Set("Content-Disposition", `attachment; filename="`+exportFilename+`"`)
 	setNoStore(w.Header())
 	encoder := json.NewEncoder(w)
@@ -2414,7 +2509,7 @@ func (s *Server) applicationsCreate(w http.ResponseWriter, r *http.Request) {
 					slog.Error("save posting pdf for new application", "application_id", created.ID, "error", err)
 				}
 			}
-			http.Redirect(w, r, "/applications/"+created.ID, http.StatusSeeOther)
+			http.Redirect(w, r, applicationsPath+"/"+created.ID, http.StatusSeeOther)
 			return
 		}
 	}
@@ -2438,13 +2533,21 @@ func (s *Server) applicationsShow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.renderApplicationDetail(w, r, app, events, documents, applicationEventFormData{
-		Values: defaultApplicationEventFormValues(time.Now()),
-	}, applicationStatusFormData{
-		Values: applicationStatusFormValuesFromApplication(app),
-	}, postingFormData{
-		Values: postingFormValuesFromApplication(app),
-	}, http.StatusOK)
+	s.renderApplicationDetail(w, r, applicationDetailRenderData{
+		Application: app,
+		Events:      events,
+		Documents:   documents,
+		EventForm: applicationEventFormData{
+			Values: defaultApplicationEventFormValues(time.Now()),
+		},
+		StatusForm: applicationStatusFormData{
+			Values: applicationStatusFormValuesFromApplication(app),
+		},
+		PostingForm: postingFormData{
+			Values: postingFormValuesFromApplication(app),
+		},
+		Status: http.StatusOK,
+	})
 }
 
 func (s *Server) applicationsAddEvent(w http.ResponseWriter, r *http.Request) {
@@ -2484,19 +2587,27 @@ func (s *Server) applicationsAddEvent(w http.ResponseWriter, r *http.Request) {
 			form.errors.Add("form", "Could not save timeline event. Please check the fields and try again.")
 			slog.Error("add application event", "error", err)
 		} else {
-			http.Redirect(w, r, "/applications/"+app.ID, http.StatusSeeOther)
+			http.Redirect(w, r, applicationsPath+"/"+app.ID, http.StatusSeeOther)
 			return
 		}
 	}
 
-	s.renderApplicationDetail(w, r, app, events, documents, applicationEventFormData{
-		Values: values,
-		Errors: form.errors,
-	}, applicationStatusFormData{
-		Values: applicationStatusFormValuesFromApplication(app),
-	}, postingFormData{
-		Values: postingFormValuesFromApplication(app),
-	}, http.StatusUnprocessableEntity)
+	s.renderApplicationDetail(w, r, applicationDetailRenderData{
+		Application: app,
+		Events:      events,
+		Documents:   documents,
+		EventForm: applicationEventFormData{
+			Values: values,
+			Errors: form.errors,
+		},
+		StatusForm: applicationStatusFormData{
+			Values: applicationStatusFormValuesFromApplication(app),
+		},
+		PostingForm: postingFormData{
+			Values: postingFormValuesFromApplication(app),
+		},
+		Status: http.StatusUnprocessableEntity,
+	})
 }
 
 func (s *Server) applicationsUpdateStatus(w http.ResponseWriter, r *http.Request) {
@@ -2536,19 +2647,27 @@ func (s *Server) applicationsUpdateStatus(w http.ResponseWriter, r *http.Request
 			form.errors.Add("form", "Could not update status. Please check the fields and try again.")
 			slog.Error("update application status", "error", err)
 		} else {
-			http.Redirect(w, r, "/applications/"+app.ID, http.StatusSeeOther)
+			http.Redirect(w, r, applicationsPath+"/"+app.ID, http.StatusSeeOther)
 			return
 		}
 	}
 
-	s.renderApplicationDetail(w, r, app, events, documents, applicationEventFormData{
-		Values: defaultApplicationEventFormValues(time.Now()),
-	}, applicationStatusFormData{
-		Values: values,
-		Errors: form.errors,
-	}, postingFormData{
-		Values: postingFormValuesFromApplication(app),
-	}, http.StatusUnprocessableEntity)
+	s.renderApplicationDetail(w, r, applicationDetailRenderData{
+		Application: app,
+		Events:      events,
+		Documents:   documents,
+		EventForm: applicationEventFormData{
+			Values: defaultApplicationEventFormValues(time.Now()),
+		},
+		StatusForm: applicationStatusFormData{
+			Values: values,
+			Errors: form.errors,
+		},
+		PostingForm: postingFormData{
+			Values: postingFormValuesFromApplication(app),
+		},
+		Status: http.StatusUnprocessableEntity,
+	})
 }
 
 func (s *Server) applicationsUpdatePosting(w http.ResponseWriter, r *http.Request) {
@@ -2616,18 +2735,26 @@ func (s *Server) applicationsUpdatePosting(w http.ResponseWriter, r *http.Reques
 	}
 
 	if !form.errors.Any() {
-		http.Redirect(w, r, "/applications/"+app.ID, http.StatusSeeOther)
+		http.Redirect(w, r, applicationsPath+"/"+app.ID, http.StatusSeeOther)
 		return
 	}
 
-	s.renderApplicationDetail(w, r, app, events, documents, applicationEventFormData{
-		Values: defaultApplicationEventFormValues(time.Now()),
-	}, applicationStatusFormData{
-		Values: applicationStatusFormValuesFromApplication(app),
-	}, postingFormData{
-		Values: values,
-		Errors: form.errors,
-	}, http.StatusUnprocessableEntity)
+	s.renderApplicationDetail(w, r, applicationDetailRenderData{
+		Application: app,
+		Events:      events,
+		Documents:   documents,
+		EventForm: applicationEventFormData{
+			Values: defaultApplicationEventFormValues(time.Now()),
+		},
+		StatusForm: applicationStatusFormData{
+			Values: applicationStatusFormValuesFromApplication(app),
+		},
+		PostingForm: postingFormData{
+			Values: values,
+			Errors: form.errors,
+		},
+		Status: http.StatusUnprocessableEntity,
+	})
 }
 
 func (s *Server) renderApplicationForm(w http.ResponseWriter, r *http.Request, values applicationFormValues, errors formErrors, status int) {
@@ -2646,15 +2773,15 @@ func (s *Server) renderApplicationForm(w http.ResponseWriter, r *http.Request, v
 	}, status)
 }
 
-func (s *Server) renderApplicationDetail(w http.ResponseWriter, r *http.Request, app model.Application, events []model.ApplicationEvent, documents []model.ApplicationDocument, eventForm applicationEventFormData, statusForm applicationStatusFormData, postingForm postingFormData, status int) {
+func (s *Server) renderApplicationDetail(w http.ResponseWriter, r *http.Request, data applicationDetailRenderData) {
 	token, err := issueCSRFToken(w, time.Now(), s.secureCookies)
 	if err != nil {
 		serverError(w, r, err)
 		return
 	}
 
-	items := make([]applicationEventItem, 0, len(events))
-	for _, event := range events {
+	items := make([]applicationEventItem, 0, len(data.Events))
+	for _, event := range data.Events {
 		items = append(items, applicationEventItem{
 			ApplicationEvent: event,
 			EventTypeLabel:   eventTypeLabel(event.EventType),
@@ -2662,8 +2789,8 @@ func (s *Server) renderApplicationDetail(w http.ResponseWriter, r *http.Request,
 		})
 	}
 
-	documentItems := make([]applicationDocumentItem, 0, len(documents))
-	for _, document := range documents {
+	documentItems := make([]applicationDocumentItem, 0, len(data.Documents))
+	for _, document := range data.Documents {
 		documentItems = append(documentItems, applicationDocumentItem{
 			ApplicationDocument: document,
 			TypeLabel:           documentTypeLabel(document.Document.Type),
@@ -2673,21 +2800,21 @@ func (s *Server) renderApplicationDetail(w http.ResponseWriter, r *http.Request,
 	}
 
 	s.renderWithStatus(w, r, "applications_show.html", applicationShowData{
-		Application:      app,
-		StatusLabel:      statusLabel(app.Status),
-		Priority:         priorityLabel(app.Priority),
-		NextActionDue:    optionalDate(app.NextAction.Due),
-		Created:          longDate(app.CreatedAt),
-		Updated:          longDate(app.UpdatedAt),
+		Application:      data.Application,
+		StatusLabel:      statusLabel(data.Application.Status),
+		Priority:         priorityLabel(data.Application.Priority),
+		NextActionDue:    optionalDate(data.Application.NextAction.Due),
+		Created:          longDate(data.Application.CreatedAt),
+		Updated:          longDate(data.Application.UpdatedAt),
 		CSRFToken:        csrfField(token),
 		Events:           items,
 		Documents:        documentItems,
-		EventForm:        eventForm,
-		StatusForm:       statusForm,
-		PostingForm:      postingForm,
+		EventForm:        data.EventForm,
+		StatusForm:       data.StatusForm,
+		PostingForm:      data.PostingForm,
 		EventTypeOptions: applicationEventTypeOptions(),
 		StatusOptions:    applicationStatusOptions(),
-	}, status)
+	}, data.Status)
 }
 
 func (s *Server) renderDocumentsIndex(w http.ResponseWriter, r *http.Request, documents []model.Document, values documentFormValues, errors formErrors, status int) {
@@ -2752,7 +2879,7 @@ func (s *Server) renderWithStatus(w http.ResponseWriter, r *http.Request, name s
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set(contentTypeHeader, contentTypeHTML)
 	setNoStore(w.Header())
 	w.WriteHeader(status)
 	_, _ = w.Write(body.Bytes())
@@ -2913,7 +3040,7 @@ func parsePostingMultipartForm(w http.ResponseWriter, r *http.Request) (*formDat
 }
 
 func (s *Server) parseApplicationCreateForm(w http.ResponseWriter, r *http.Request) (*formData, multipart.File, *multipart.FileHeader, error) {
-	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+	if strings.HasPrefix(r.Header.Get(contentTypeHeader), "multipart/form-data") {
 		return parsePostingMultipartForm(w, r)
 	}
 	form, err := parseLimitedForm(w, r, defaultMaxFormBytes)
@@ -2921,7 +3048,7 @@ func (s *Server) parseApplicationCreateForm(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) parseDocumentUploadForm(w http.ResponseWriter, r *http.Request) (*formData, multipart.File, *multipart.FileHeader, error) {
-	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+	if !strings.HasPrefix(r.Header.Get(contentTypeHeader), "multipart/form-data") {
 		form, err := parseLimitedForm(w, r, defaultMaxFormBytes)
 		return form, nil, nil, err
 	}
@@ -3417,7 +3544,7 @@ func documentTypeLabel(documentType model.DocumentType) string {
 
 func documentDownloadURL(document model.Document) string {
 	if strings.HasPrefix(filepath.ToSlash(document.StoragePath), "documents/") {
-		return "/documents/" + document.ID + "/download"
+		return documentsPath + "/" + document.ID + "/download"
 	}
 	return ""
 }
@@ -3431,7 +3558,7 @@ func documentAttachmentURL(document model.Document) string {
 
 func documentViewURL(document model.Document) string {
 	if documentDownloadURL(document) != "" {
-		return "/documents/" + document.ID
+		return documentsPath + "/" + document.ID
 	}
 	return ""
 }

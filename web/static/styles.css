@@ -642,9 +642,12 @@ main {
 }
 
 .dashboard-empty-note {
+  display: grid;
+  gap: 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--surface);
+  padding: 16px;
+  background: var(--surface-subtle);
   box-shadow: var(--shadow-sm);
 }
 
@@ -698,17 +701,14 @@ main {
 
 .pipeline-pulse-flow {
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--pulse-panel-bg);
-  box-shadow: var(--shadow-sm);
-}
-
-.pipeline-pulse-flow {
   display: grid;
   gap: 18px;
   align-content: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 18px;
+  background: var(--pulse-panel-bg);
+  box-shadow: var(--shadow-sm);
   overflow-x: auto;
   scrollbar-width: thin;
 }
@@ -1074,13 +1074,6 @@ main {
 .dashboard-pipeline-segment[data-status="withdrawn"],
 .dashboard-pipeline-segment[data-status="archived"] {
   border-top: 4px solid var(--pipeline-closed);
-}
-
-.dashboard-empty-note {
-  display: grid;
-  gap: 6px;
-  padding: 16px;
-  background: var(--surface-subtle);
 }
 
 .dashboard-empty-note strong {
