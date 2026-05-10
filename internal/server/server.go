@@ -670,6 +670,8 @@ func (s *Server) requiresLoginAuth(r *http.Request) bool {
 		return false
 	case r.URL.Path == "/login":
 		return false
+	case r.URL.Path == "/favicon.ico":
+		return false
 	case strings.HasPrefix(r.URL.Path, "/static/"):
 		return false
 	default:
@@ -959,7 +961,10 @@ func (s *Server) loginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	next := safeLoginNextTarget(r, r.PostForm.Get("next"))
 	if err := verifyCSRF(r, time.Now()); err != nil {
-		http.Error(w, "invalid CSRF token", http.StatusBadRequest)
+		s.renderLoginWithStatus(w, r, loginData{
+			Next:  next,
+			Error: "Your sign-in form expired. Try again.",
+		}, http.StatusBadRequest)
 		return
 	}
 
@@ -1045,13 +1050,17 @@ func parseLoginForm(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, data loginData) {
+	s.renderLoginWithStatus(w, r, data, http.StatusOK)
+}
+
+func (s *Server) renderLoginWithStatus(w http.ResponseWriter, r *http.Request, data loginData, status int) {
 	token, err := issueCSRFToken(w, time.Now(), s.secureCookies)
 	if err != nil {
 		serverError(w, r, err)
 		return
 	}
 	data.CSRFToken = csrfField(token)
-	s.renderWithStatus(w, r, "login.html", data, http.StatusOK)
+	s.renderWithStatus(w, r, "login.html", data, status)
 }
 
 func currentSession(r *http.Request) (session.Session, bool) {

@@ -241,6 +241,12 @@ func TestLoginRequiresCSRF(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
+	if body := rec.Body.String(); !strings.Contains(body, "Your sign-in form expired. Try again.") {
+		t.Fatalf("body does not contain expired form message: %s", body)
+	}
+	if cookie := firstCookieNamed(rec, csrfCookieName); cookie == nil {
+		t.Fatalf("CSRF failure did not issue a replacement CSRF cookie")
+	}
 }
 
 func TestLoginCorrectCredentialsCreateSessionCookie(t *testing.T) {
@@ -681,9 +687,14 @@ func TestLoginAuthPublicAllowlistIsNarrow(t *testing.T) {
 		SessionStore: newFakeSessionStore(),
 	})
 
-	publicGETs := []string{"/healthz", "/login", "/static/styles.css"}
-	for _, target := range publicGETs {
-		target := target
+	publicGETs := map[string]int{
+		"/healthz":           http.StatusOK,
+		"/login":             http.StatusOK,
+		"/static/styles.css": http.StatusOK,
+		"/favicon.ico":       http.StatusNotFound,
+	}
+	for target, wantStatus := range publicGETs {
+		target, wantStatus := target, wantStatus
 		t.Run("public "+target, func(t *testing.T) {
 			t.Parallel()
 
@@ -691,8 +702,8 @@ func TestLoginAuthPublicAllowlistIsNarrow(t *testing.T) {
 			rec := httptest.NewRecorder()
 			srv.ServeHTTP(rec, req)
 
-			if rec.Code != http.StatusOK {
-				t.Fatalf("%s status = %d, want %d", target, rec.Code, http.StatusOK)
+			if rec.Code != wantStatus {
+				t.Fatalf("%s status = %d, want %d", target, rec.Code, wantStatus)
 			}
 			if location := rec.Header().Get("Location"); location != "" {
 				t.Fatalf("%s Location = %q, want empty", target, location)
