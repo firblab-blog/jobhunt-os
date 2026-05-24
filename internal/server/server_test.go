@@ -585,6 +585,45 @@ func TestLoginPageRedirectsAlreadyAuthenticatedUser(t *testing.T) {
 	}
 }
 
+func TestLoginPageRedirectsAuthenticatedUserOnlyToSafeNextTarget(t *testing.T) {
+	t.Parallel()
+
+	authOptions, password := testAuthOptions(t)
+	authOptions.Mode = authModeLogin
+	sessionStore := newFakeSessionStore()
+	sessionCookie := loginSessionCookie(t, authOptions, password, sessionStore)
+	srv := NewWithOptions(nil, Options{Auth: authOptions, SessionStore: sessionStore})
+
+	tests := map[string]string{
+		"/login?next=/documents?type=resume":               "/documents?type=resume",
+		"/login?next=http://example.com/documents":         "/documents",
+		"/login?next=https://evil.example/phish":           "/",
+		"/login?next=//evil.example/phish":                 "/",
+		"/login?next=/login":                               "/",
+		"/login?next=/static/styles.css":                   "/",
+		"/login?next=" + url.QueryEscape("/theme?theme=x"): "/",
+	}
+	for target, want := range tests {
+		target, want := target, want
+		t.Run(target, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodGet, target, nil)
+			req.AddCookie(sessionCookie)
+			rec := httptest.NewRecorder()
+
+			srv.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusSeeOther {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+			}
+			if location := rec.Header().Get("Location"); location != want {
+				t.Fatalf("Location = %q, want %q", location, want)
+			}
+		})
+	}
+}
+
 func TestLogoutRevokesSessionAndClearsCookie(t *testing.T) {
 	t.Parallel()
 
@@ -965,10 +1004,11 @@ func TestThemeUpdateUsesSafeRedirectTargets(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]string{
-		"/theme?theme=light&return_to=/contacts":                  "/contacts",
-		"/theme?theme=light&return_to=https://evil.example/phish": "/",
-		"/theme?theme=light&return_to=//evil.example/phish":       "/",
-		"/theme?theme=light&return_to=/theme%3Ftheme%3Ddark":      "/",
+		"/theme?theme=light&return_to=/contacts":                   "/contacts",
+		"/theme?theme=light&return_to=http://example.com/contacts": "/contacts",
+		"/theme?theme=light&return_to=https://evil.example/phish":  "/",
+		"/theme?theme=light&return_to=//evil.example/phish":        "/",
+		"/theme?theme=light&return_to=/theme%3Ftheme%3Ddark":       "/",
 	}
 	for target, want := range tests {
 		rec := request(http.MethodGet, target)

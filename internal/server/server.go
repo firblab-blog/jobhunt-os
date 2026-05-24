@@ -1008,11 +1008,11 @@ func (s *Server) loginGet(w http.ResponseWriter, r *http.Request) {
 	next := safeLoginNextTarget(r, r.URL.Query().Get("next"))
 	if s.loginAuth != nil {
 		if authorized, _ := s.authorizeSession(r); authorized {
-			http.Redirect(w, r, loginRedirectTarget(next), http.StatusSeeOther)
+			redirectToLocalTarget(w, loginRedirectTarget(next), http.StatusSeeOther)
 			return
 		}
 	}
-	s.renderLogin(w, r, loginData{Next: next})
+	s.renderLogin(w, r, loginData{Next: next.locationOrEmpty()})
 }
 
 func (s *Server) loginPost(w http.ResponseWriter, r *http.Request) {
@@ -1024,7 +1024,7 @@ func (s *Server) loginPost(w http.ResponseWriter, r *http.Request) {
 	next := safeLoginNextTarget(r, r.PostForm.Get("next"))
 	if err := verifyCSRF(r, time.Now()); err != nil {
 		s.renderLoginWithStatus(w, r, loginData{
-			Next:  next,
+			Next:  next.locationOrEmpty(),
 			Error: "Your sign-in form expired. Try again.",
 		}, http.StatusBadRequest)
 		return
@@ -1038,7 +1038,7 @@ func (s *Server) loginPost(w http.ResponseWriter, r *http.Request) {
 		status = s.loginLimiter.RecordFailure(now, username, client)
 		s.logFailedLogin(username, client, status)
 		s.renderLogin(w, r, loginData{
-			Next:     next,
+			Next:     next.locationOrEmpty(),
 			Error:    loginErrorMessage,
 			Username: username,
 		})
@@ -1048,7 +1048,7 @@ func (s *Server) loginPost(w http.ResponseWriter, r *http.Request) {
 		status := s.loginLimiter.RecordFailure(now, username, client)
 		s.logFailedLogin(username, client, status)
 		s.renderLogin(w, r, loginData{
-			Next:     next,
+			Next:     next.locationOrEmpty(),
 			Error:    loginErrorMessage,
 			Username: username,
 		})
@@ -1066,7 +1066,7 @@ func (s *Server) loginPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.setSessionCookie(w, token)
-	http.Redirect(w, r, loginRedirectTarget(next), http.StatusSeeOther)
+	redirectToLocalTarget(w, loginRedirectTarget(next), http.StatusSeeOther)
 }
 
 func (s *Server) logFailedLogin(username string, client string, status loginAttemptStatus) {
@@ -1130,24 +1130,43 @@ func currentSession(r *http.Request) (session.Session, bool) {
 	return found, ok
 }
 
-func loginRedirectTarget(next string) string {
-	if next == "" {
-		return "/"
+type localRedirectTarget struct {
+	location string
+}
+
+func rootRedirectTarget() localRedirectTarget {
+	return localRedirectTarget{location: "/"}
+}
+
+func (target localRedirectTarget) locationOrEmpty() string {
+	return target.location
+}
+
+func redirectToLocalTarget(w http.ResponseWriter, target localRedirectTarget, status int) {
+	location := target.locationOrEmpty()
+	if location == "" {
+		location = "/"
+	}
+	w.Header().Set("Location", location)
+	w.WriteHeader(status)
+}
+
+func loginRedirectTarget(next localRedirectTarget) localRedirectTarget {
+	if next.locationOrEmpty() == "" {
+		return rootRedirectTarget()
 	}
 	return next
 }
 
-func safeLoginNextTarget(r *http.Request, candidate string) string {
-	target := safeRedirectTarget(r, candidate)
-	switch target {
-	case "", loginPath, logoutPath, healthzPath, themePath:
-		return ""
-	default:
-		if strings.HasPrefix(target, staticPathPrefix) {
-			return ""
-		}
-		return target
+func safeLoginNextTarget(r *http.Request, candidate string) localRedirectTarget {
+	target, ok := safeRedirectTarget(r, candidate)
+	if !ok || target.location == loginPath || target.location == logoutPath || target.location == healthzPath || target.location == themePath {
+		return localRedirectTarget{}
 	}
+	if strings.HasPrefix(target.location, staticPathPrefix) {
+		return localRedirectTarget{}
+	}
+	return target
 }
 
 func clientIdentity(r *http.Request, trustProxy bool) string {
@@ -1214,14 +1233,14 @@ func (s *Server) themeUpdate(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	target := safeRedirectTarget(r, r.URL.Query().Get("return_to"))
-	if target == "" {
-		target = safeRedirectTarget(r, r.Referer())
+	target, ok := safeRedirectTarget(r, r.URL.Query().Get("return_to"))
+	if !ok {
+		target, ok = safeRedirectTarget(r, r.Referer())
 	}
-	if target == "" {
-		target = "/"
+	if !ok {
+		target = rootRedirectTarget()
 	}
-	http.Redirect(w, r, target, http.StatusSeeOther)
+	redirectToLocalTarget(w, target, http.StatusSeeOther)
 }
 
 func (s *Server) dashboard(r *http.Request) dashboardData {
@@ -3030,33 +3049,33 @@ func currentRequestTarget(r *http.Request) string {
 	return target
 }
 
-func safeRedirectTarget(r *http.Request, candidate string) string {
+func safeRedirectTarget(r *http.Request, candidate string) (localRedirectTarget, bool) {
 	candidate = strings.TrimSpace(candidate)
 	if candidate == "" {
-		return ""
+		return localRedirectTarget{}, false
 	}
 	parsed, err := url.Parse(candidate)
 	if err != nil {
-		return ""
+		return localRedirectTarget{}, false
 	}
 	if parsed.IsAbs() || parsed.Host != "" {
 		if r == nil || !sameRequestHost(r, parsed) {
-			return ""
+			return localRedirectTarget{}, false
 		}
 		if parsed.Path == "" {
 			parsed.Path = "/"
 		}
 	} else if parsed.Path == "" || !strings.HasPrefix(parsed.Path, "/") || strings.HasPrefix(parsed.Path, "//") {
-		return ""
+		return localRedirectTarget{}, false
 	}
 
 	if parsed.Path == themePath {
-		return "/"
+		return rootRedirectTarget(), true
 	}
 	if parsed.RawQuery == "" {
-		return parsed.EscapedPath()
+		return localRedirectTarget{location: parsed.EscapedPath()}, true
 	}
-	return parsed.EscapedPath() + "?" + parsed.RawQuery
+	return localRedirectTarget{location: parsed.EscapedPath() + "?" + parsed.RawQuery}, true
 }
 
 func sameRequestHost(r *http.Request, target *url.URL) bool {
